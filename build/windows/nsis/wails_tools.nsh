@@ -14,7 +14,7 @@
     !define INFO_PRODUCTNAME "gotohp"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.13.0"
+    !define INFO_PRODUCTVERSION "0.14.0"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "Copyright (c) 2024 xob0t and contributors"
