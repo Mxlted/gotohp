@@ -9,7 +9,7 @@ import (
 )
 
 type livePhotoUploadAPI interface {
-	FindRemoteMediaByHash(hash []byte) (string, error)
+	checkUploadHash(ctx context.Context, hash []byte) (string, error)
 	GetUploadToken(sha1Hash string, fileSize int64) (string, error)
 	UploadFileWithProgress(ctx context.Context, filePath string, uploadToken string, onProgress UploadProgressCallback) (ScottyFinalizeToken, error)
 	CommitLivePhoto(input LivePhotoCreateRequest) (string, error)
@@ -57,13 +57,13 @@ func uploadLivePhotoWithCallback(
 		FileName: displayName,
 		Message:  "Checking both Live Photo components...",
 	})
-	photoRemoteKey, photoCheckErr := api.FindRemoteMediaByHash(photoSHA1)
-	videoRemoteKey, videoCheckErr := api.FindRemoteMediaByHash(videoSHA1)
-	if photoCheckErr != nil {
-		return "", false, fmt.Errorf("check Live Photo still deduplication: %w", photoCheckErr)
+	photoRemoteKey, err := api.checkUploadHash(ctx, photoSHA1)
+	if err != nil {
+		return "", false, fmt.Errorf("check Live Photo still deduplication: %w", err)
 	}
-	if videoCheckErr != nil {
-		return "", false, fmt.Errorf("check Live Photo video deduplication: %w", videoCheckErr)
+	videoRemoteKey, err := api.checkUploadHash(ctx, videoSHA1)
+	if err != nil {
+		return "", false, fmt.Errorf("check Live Photo video deduplication: %w", err)
 	}
 	if photoRemoteKey != "" {
 		if options.UpdateExistingPhotosToLive {

@@ -31,6 +31,7 @@ type Api struct {
 	language          string
 	authData          string
 	client            *http.Client
+	quota             *photosRPCQuota
 	authResponseCache map[string]string
 	commitEndpoint    string
 	commitRetryConfig *RetryConfig
@@ -50,6 +51,8 @@ type ApiOptions struct {
 	Proxy    string
 	Saver    bool
 	UseQuota bool
+	// Upload workers and album operations share the selected account's RPC quota.
+	rpcQuota *photosRPCQuota
 }
 
 // NewApi creates a client for the account in opts using the loaded credential store.
@@ -82,6 +85,9 @@ func NewApi(opts ApiOptions) (*Api, error) {
 	}
 	api.saver = opts.Saver
 	api.useQuota = opts.UseQuota
+	if opts.rpcQuota != nil {
+		api.quota = opts.rpcQuota
+	}
 	return api, nil
 }
 
@@ -104,6 +110,7 @@ func newAPIFromCredential(credentials string, proxy string) (*Api, error) {
 		language:          params.Get("lang"),
 		authData:          strings.TrimSpace(credentials),
 		client:            client,
+		quota:             &photosRPCQuota{},
 		authResponseCache: map[string]string{
 			"Expiry": "0",
 			"Auth":   "",
@@ -308,8 +315,21 @@ func (a *Api) GetUploadToken(shaHashB64 string, fileSize int64) (string, error) 
 
 // Check library for existing files with the hash
 func (a *Api) FindRemoteMediaByHash(shaHash []byte) (string, error) {
-	// Create the protobuf message
+	return a.findRemoteMediaByHash(context.Background(), shaHash)
+}
 
+// A duplicate lookup is read-only and safe to repeat after the quota resets.
+func (a *Api) checkUploadHash(ctx context.Context, shaHash []byte) (string, error) {
+	for attempt := 0; attempt <= DefaultRetryConfig().MaxRetries; attempt++ {
+		key, err := a.findRemoteMediaByHash(ctx, shaHash)
+		if !errors.Is(err, errPhotosRateLimited) {
+			return key, err
+		}
+	}
+	return "", fmt.Errorf("%w after retrying the duplicate check. Try this file again later", errPhotosRateLimited)
+}
+
+func (a *Api) findRemoteMediaByHash(ctx context.Context, shaHash []byte) (string, error) {
 	// Create and initialize the protobuf message with all required nested structures
 	protoBody := generated.HashCheck{
 		Field1: &generated.HashCheckField1Type{
@@ -342,7 +362,7 @@ func (a *Api) FindRemoteMediaByHash(shaHash []byte) (string, error) {
 	}
 
 	// Create the request
-	req, err := http.NewRequest(
+	req, err := http.NewRequestWithContext(ctx,
 		"POST",
 		"https://photosdata-pa.googleapis.com/6439526531001121323/5084965799730810217",
 		bytes.NewReader(serializedData),
@@ -357,7 +377,7 @@ func (a *Api) FindRemoteMediaByHash(shaHash []byte) (string, error) {
 	}
 
 	// Make the request
-	resp, err := a.client.Do(req)
+	resp, err := a.doPhotosRPC(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
@@ -629,9 +649,9 @@ func (a *Api) doCommitRequest(serializedData []byte) (mediaKey string, retryable
 		req.Header.Set(k, v)
 	}
 
-	resp, err := a.client.Do(req)
+	resp, err := a.doPhotosRPC(req)
 	if err != nil {
-		return "", true, fmt.Errorf("request failed: %w", err)
+		return "", !errors.Is(err, context.Canceled), fmt.Errorf("request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -737,7 +757,7 @@ func (a *Api) CreateAlbum(albumName string, mediaKeys []string) (string, error) 
 	}
 
 	// Make the request
-	resp, err := a.client.Do(req)
+	resp, err := a.doPhotosRPC(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
@@ -827,7 +847,7 @@ func (a *Api) AddMediaToAlbum(albumMediaKey string, mediaKeys []string) error {
 	}
 
 	// Make the request
-	resp, err := a.client.Do(req)
+	resp, err := a.doPhotosRPC(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}

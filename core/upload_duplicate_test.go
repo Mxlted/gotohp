@@ -33,6 +33,7 @@ func (f duplicateTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 func duplicateTestAPI(f duplicateTransport) *Api {
 	return &Api{
 		client:            &http.Client{Transport: f},
+		quota:             &photosRPCQuota{},
 		authResponseCache: map[string]string{"Expiry": "4102444800", "Auth": "test"},
 	}
 }

@@ -25,7 +25,9 @@ During an upload, search **Warnings** by message, warning code, filename, or fol
 
 With **Force Upload** off (the default), gotohp calculates a SHA-1 hash of each ordinary photo or video and asks the selected Google Photos account for a match before sending the file. Exact matches count as **Already in library**. Renaming a file preserves the match. Editing, re-encoding, or changing embedded metadata can change the hash. For Live Photos, a match on one component can skip the pair and appears under **Other skips**.
 
-If the duplicate check fails for an ordinary file, gotohp records a warning and proceeds with the upload. If Google returns the same media ID for two ordinary transfers in one batch, **Warnings** lists both paths. A single upload receipt confirms the library item’s ID without saying whether Google created it or reused it.
+If Google rate-limits a duplicate check (HTTP 429), gotohp pauses Photos service requests across the batch. It waits for Google's requested delay, or one minute if Google gives no delay. If three retries still hit the limit, the file appears under **Failed** and stays on your computer for a later retry. For other duplicate-check errors on ordinary files, gotohp records a warning and proceeds with the upload.
+
+If Google returns the same media ID for two ordinary transfers in one batch, **Warnings** lists both paths. A single upload receipt confirms the library item’s ID without saying whether Google created it or reused it.
 
 If you enable **Delete From Host After Upload**, gotohp reads each local file again before deleting it. If its contents have changed, gotohp keeps the file and records a warning. For a Live Photo, it checks both components before removing either one.
 

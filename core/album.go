@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -177,7 +178,7 @@ func (m *AlbumManager) addMediaWithRetry(albumKey string, mediaKeys []string) er
 func isRetryableAlbumError(err error) bool {
 	errStr := err.Error()
 	// Retry on 5xx errors or 429 (rate limit)
-	if strings.Contains(errStr, "status 5") || strings.Contains(errStr, "status 429") {
+	if errors.Is(err, errPhotosRateLimited) || strings.Contains(errStr, "status 5") || strings.Contains(errStr, "status 429") {
 		return true
 	}
 	// Retry on network errors

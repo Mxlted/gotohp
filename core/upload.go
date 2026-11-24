@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 )
 
 // FilesDroppedEvent is emitted when files are dropped on any drop zone
@@ -155,6 +156,12 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 	}
 	m.running = true
 	m.cancel = make(chan struct{})
+	opts.Api.rpcQuota = &photosRPCQuota{cancel: m.cancel, onThrottle: func(delay time.Duration) {
+		m.reporter.Warning(PreflightWarning{
+			Code:    "google-photos-rate-limit",
+			Message: fmt.Sprintf("Google Photos reached its request limit (HTTP 429). Requests will resume in %s.", delay.Round(time.Second)),
+		})
+	}}
 	m.canceled = false
 	m.apiOptions = opts.Api
 	m.mu.Unlock()
@@ -643,8 +650,11 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 			Message:  "Checking if file exists in library...",
 		})
 
-		mediaKey, err := api.FindRemoteMediaByHash(sha1Hash)
+		mediaKey, err := api.checkUploadHash(ctx, sha1Hash)
 		if err != nil {
+			if errors.Is(err, errPhotosRateLimited) || ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				return "", false, err
+			}
 			reporter.Warning(PreflightWarning{
 				Paths:   []string{filePath},
 				Code:    "remote-check-failed",
