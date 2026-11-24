@@ -446,10 +446,7 @@ func scanDirectoryForFiles(path string, recursive bool, excludePattern string, c
 			if recursive {
 				subFiles, err := scanDirectoryForFiles(fullPath, recursive, excludePattern, cancelled)
 				if err != nil {
-					if errors.Is(err, context.Canceled) {
-						return nil, err
-					}
-					continue
+					return nil, err
 				}
 				files = append(files, subFiles...)
 			}
@@ -493,22 +490,28 @@ func filterGooglePhotosFilesWithCancel(paths []string, opts UploadOptions, cance
 		info          os.FileInfo
 	}
 	seenFiles := make(map[string][]seenUploadFile)
-	appendFile := func(path string, info os.FileInfo) {
+	appendFile := func(path string, info os.FileInfo) error {
 		if !opts.DisableUnsupportedFilesFilter && !isSupportedByGooglePhotos(path) {
-			return
+			return nil
+		}
+		if info == nil {
+			var err error
+			info, err = os.Stat(path)
+			if err != nil {
+				return err
+			}
+		}
+		if !info.Mode().IsRegular() {
+			return nil
 		}
 		canonicalPath := canonicalUploadPath(path)
 		bucketKey := canonicalPath
 		if runtime.GOOS == "windows" {
 			bucketKey = strings.ToLower(bucketKey)
 		}
-		if info == nil {
-			info, _ = os.Stat(path)
-		}
 		for _, seen := range seenFiles[bucketKey] {
-			if canonicalPath == seen.canonicalPath ||
-				(info != nil && seen.info != nil && os.SameFile(info, seen.info)) {
-				return
+			if canonicalPath == seen.canonicalPath || os.SameFile(info, seen.info) {
+				return nil
 			}
 		}
 		seenFiles[bucketKey] = append(seenFiles[bucketKey], seenUploadFile{
@@ -516,6 +519,7 @@ func filterGooglePhotosFilesWithCancel(paths []string, opts UploadOptions, cance
 			info:          info,
 		})
 		supportedFiles = append(supportedFiles, path)
+		return nil
 	}
 
 	for _, path := range paths {
@@ -537,10 +541,12 @@ func filterGooglePhotosFilesWithCancel(paths []string, opts UploadOptions, cance
 				if cancelled != nil && cancelled() {
 					return nil, context.Canceled
 				}
-				appendFile(file, nil)
+				if err := appendFile(file, nil); err != nil {
+					return nil, err
+				}
 			}
-		} else {
-			appendFile(path, fileInfo)
+		} else if err := appendFile(path, fileInfo); err != nil {
+			return nil, err
 		}
 	}
 
