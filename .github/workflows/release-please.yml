@@ -15,9 +15,16 @@ env:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    env:
+      PREPARE_RELEASE: ${{ !github.event.repository.fork || secrets.RELEASE_PLEASE_TOKEN != '' }}
     steps:
+      - name: Describe tag-based releases
+        if: env.PREPARE_RELEASE == 'false'
+        run: echo 'Push a version tag to build a release, or configure RELEASE_PLEASE_TOKEN for automatic release PRs.' >> "$GITHUB_STEP_SUMMARY"
+
       - uses: googleapis/release-please-action@v5
         id: release-please
+        if: env.PREPARE_RELEASE == 'true'
         with:
           # RELEASE_PLEASE_TOKEN must be a PAT (contents: write, pull-requests: write).
           # Tags created with the default GITHUB_TOKEN do not trigger other

@@ -139,3 +139,5 @@ wails3 build
 ```
 
 The desktop executable is written to `bin/`. Linux users can also build or run the fork with Nix. [Nix instructions](nix/README.md)
+
+Pushing a version tag such as `v1.2.3` runs the release builds. Fork maintainers can enable automatic release pull requests by configuring `RELEASE_PLEASE_TOKEN` with contents and pull request write access.
