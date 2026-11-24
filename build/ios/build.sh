@@ -3,7 +3,7 @@ set -e
 
 # Build configuration
 APP_NAME="gotohp"
-BUNDLE_ID="com.xob0t.gotohp"
+BUNDLE_ID="io.github.mxlted.gotohp"
 VERSION="0.8.1"
 BUILD_NUMBER="0.8.1"
 BUILD_DIR="build/ios"

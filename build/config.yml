@@ -5,12 +5,12 @@ version: "3"
 
 # This information is used to generate the build assets.
 info:
-  companyName: "xob0t" # The name of the company
+  companyName: "Mxlted" # The name of the company
   productName: "gotohp" # The name of the application
-  productIdentifier: "com.xob0t.gotohp" # The unique product identifier
-  description: "Google Photos Unofficial Client" # The application description
-  copyright: "" # Copyright text
-  comments: "" # Comments
+  productIdentifier: "io.github.mxlted.gotohp" # The unique product identifier
+  description: "Google Photos uploader with desktop review and offline previews"
+  copyright: "Copyright (c) 2024 xob0t and contributors"
+  comments: "Mxlted fork of gotohp"
   version: "0.11.0" # The application version, managed by Release Please (x-release-please-version)
 
 # Dev mode configuration

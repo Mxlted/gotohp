@@ -20,7 +20,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-var title = "gotohp v" + getAppVersion()
+var title = "gotohp v" + getAppVersion() + " (Mxlted)"
 
 func main() {
 	// Run the CLI when the arguments name one of its commands; otherwise start the GUI.
@@ -40,7 +40,7 @@ func runGUI() {
 
 	configManager := &core.ConfigManager{}
 	wailsApp := application.New(application.Options{
-		Name:        "com.xob0t.gotohp",
+		Name:        "io.github.mxlted.gotohp",
 		Description: "Google Photos unofficial client",
 		Services: []application.Service{
 			application.NewService(configManager),

@@ -6,8 +6,8 @@ section: "utils"
 priority: "optional"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
 description: "Google Photos unofficial client CLI"
-vendor: "xob0t"
-homepage: "https://github.com/xob0t/gotohp"
+vendor: "Mxlted"
+homepage: "https://github.com/Mxlted/gotohp"
 license: "MIT"
 release: "1"
 

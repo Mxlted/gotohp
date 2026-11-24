@@ -8,7 +8,7 @@
     !define INFO_PROJECTNAME "gotohp"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "xob0t"
+    !define INFO_COMPANYNAME "Mxlted"
 !endif
 !ifndef INFO_PRODUCTNAME
     !define INFO_PRODUCTNAME "gotohp"
@@ -17,7 +17,7 @@
     !define INFO_PRODUCTVERSION "0.11.0"
 !endif
 !ifndef INFO_COPYRIGHT
-    !define INFO_COPYRIGHT "© now, My Company"
+    !define INFO_COPYRIGHT "Copyright (c) 2024 xob0t and contributors"
 !endif
 !ifndef PRODUCT_EXECUTABLE
     !define PRODUCT_EXECUTABLE "${INFO_PROJECTNAME}.exe"

@@ -57,7 +57,7 @@
 
           meta = {
             description = "Unofficial Google Photos client";
-            homepage = "https://github.com/xob0t/gotohp";
+            homepage = "https://github.com/Mxlted/gotohp";
             license = lib.licenses.mit;
             platforms = lib.platforms.linux;
           };
@@ -109,16 +109,16 @@
               '';
 
               # Wails registers the GTK app id as org.wails.<sanitised app name>
-              # ("com_xob0t_gotohp"); matching it lets Wayland compositors find the icon.
+              # ("io_github_mxlted_gotohp"); matching it lets Wayland compositors find the icon.
               desktopItems = [
                 (pkgs.makeDesktopItem {
-                  name = "org.wails.com_xob0t_gotohp";
+                  name = "org.wails.io_github_mxlted_gotohp";
                   desktopName = "gotohp";
                   comment = "Google Photos Unofficial Client";
                   exec = "gotohp";
                   icon = "gotohp";
                   categories = [ "Utility" ];
-                  startupWMClass = "org.wails.com_xob0t_gotohp";
+                  startupWMClass = "org.wails.io_github_mxlted_gotohp";
                 })
               ];
 

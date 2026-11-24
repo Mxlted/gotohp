@@ -1,7 +1,7 @@
 [Desktop Entry]
 Version=1.0
 Name=gotohp
-Comment=Google Photos Unofficial Client
+Comment=Google Photos uploader with desktop review and offline previews
 # The Exec line includes %u to pass the URL to the application
 Exec=/usr/local/bin/gotohp %u
 Terminal=false

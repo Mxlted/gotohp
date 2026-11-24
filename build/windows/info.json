@@ -5,11 +5,11 @@
 	"info": {
 		"0000": {
 			"ProductVersion": "0.11.0",
-			"CompanyName": "xob0t",
-			"FileDescription": "Google Photos Unofficial Client",
-			"LegalCopyright": "© now, My Company",
+			"CompanyName": "Mxlted",
+			"FileDescription": "Google Photos uploader with desktop review and offline previews",
+			"LegalCopyright": "Copyright (c) 2024 xob0t and contributors",
 			"ProductName": "gotohp",
-			"Comments": "This is a comment"
+			"Comments": "Mxlted fork of gotohp"
 		}
 	}
 }

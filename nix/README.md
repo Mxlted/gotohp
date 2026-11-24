@@ -13,14 +13,14 @@ A flake for Linux (`x86_64` and `aarch64`). It is community-maintained: the upst
 Try it without installing:
 
 ```shell
-nix run github:xob0t/gotohp#gotohp                    # GUI
-nix run github:xob0t/gotohp#gotohp-cli -- --help      # CLI
+nix run github:Mxlted/gotohp#gotohp                    # GUI
+nix run github:Mxlted/gotohp#gotohp-cli -- --help      # CLI
 ```
 
 Install into your profile:
 
 ```shell
-nix profile install github:xob0t/gotohp#gotohp github:xob0t/gotohp#gotohp-cli
+nix profile install github:Mxlted/gotohp#gotohp github:Mxlted/gotohp#gotohp-cli
 ```
 
 Or on NixOS, add it as a flake input:
@@ -28,7 +28,7 @@ Or on NixOS, add it as a flake input:
 ```nix
 # flake.nix
 inputs.gotohp = {
-  url = "github:xob0t/gotohp";
+  url = "github:Mxlted/gotohp";
   inputs.nixpkgs.follows = "nixpkgs";
 };
 
