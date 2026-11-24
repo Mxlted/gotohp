@@ -16,9 +16,22 @@ gotohp is an unofficial uploader for Google Photos. Review files in the desktop 
 
 Drop files or folders into the window, or use **Choose files** and **Choose folders**. Review the queue and remove anything you want to leave out. Under **Destination**, select a Google account and choose **Photo library**, **Named album**, or **Albums from folders**. Click **Start upload** to scan the selected folders using your current settings and begin the upload.
 
-![Upload queue with three selected paths and the destination account](readme_assets/upload-review.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="readme_assets/upload-review-dark.png">
+  <img src="readme_assets/upload-review.png" width="1066" alt="Upload workspace with a photo, a folder, and a video queued for the selected Google Photos account">
+</picture>
 
-During an upload, the dashboard shows file progress, transfer speed, and elapsed time. When the batch finishes, **Show details** lists any failures, skips, or warnings. Use **Copy as JSON** to copy the full report.
+During an upload, search **Warnings** by message, warning code, filename, or folder. The count shows how many warnings match. After the transfer, **Show details** opens the warnings again alongside any failures and other skips.
+
+With **Force Upload** off (the default), gotohp calculates a SHA-1 hash of each ordinary photo or video and asks the selected Google Photos account for a match before sending the file. Exact matches count as **Already in library**. Renaming a file preserves the match. Editing, re-encoding, or changing embedded metadata can change the hash. For Live Photos, a match on one component can skip the pair and appears under **Other skips**.
+
+If the duplicate check fails for an ordinary file, gotohp records a warning and proceeds with the upload. If Google returns the same media ID for two ordinary transfers in one batch, **Warnings** lists both paths. A single upload receipt confirms the library item’s ID without saying whether Google created it or reused it.
+
+If you enable **Delete From Host After Upload**, gotohp reads each local file again before deleting it. If its contents have changed, gotohp keeps the file and records a warning. For a Live Photo, it checks both components before removing either one.
+
+**Retry incomplete files** returns the skipped Live Photo files to the queue for review. Add a matching still or MOV to keep the motion. When you click **Start upload**, each retried file still missing its companion uploads as an ordinary photo or video. Other files follow your usual settings. If several files share a Live Photo identifier, gotohp already queues them separately. To make a Live Photo from that group, select just one original still and its matching MOV.
+
+To recover skips from an earlier session, use **Copy as JSON** in its upload results. In the new window, click **Paste skipped files** in the empty upload queue, then review the destination and start the upload.
 
 The upload panel features Ansel Adams’s 1942 photograph of the Tetons and the Snake River. [National Archives photograph](https://www.archives.gov/research/still-pictures/highlights/the-tetons-snake-river)
 
