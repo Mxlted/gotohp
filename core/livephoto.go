@@ -20,9 +20,15 @@ type SingleMedia struct {
 }
 
 type LivePhotoPair struct {
-	ContentIdentifier string
-	PhotoPath         string
-	VideoPath         string
+	ContentIdentifier string `json:"contentIdentifier"`
+	PhotoPath         string `json:"photoPath"`
+	VideoPath         string `json:"videoPath"`
+}
+
+type LivePhotoGroup struct {
+	ContentIdentifier string   `json:"contentIdentifier"`
+	Photos            []string `json:"photos"`
+	Videos            []string `json:"videos"`
 }
 
 type UploadWorkItem struct {
@@ -43,6 +49,7 @@ type LivePhotoClassificationOptions struct {
 	AllowIncompletePaths map[string]bool
 	IgnoreAppleMetadata  bool
 	Cancelled            func() bool
+	HoldAmbiguous        func(LivePhotoGroup)
 }
 
 type LivePhotoMetadataReader interface {
@@ -113,7 +120,7 @@ func ClassifyUploadWork(paths []string, options LivePhotoClassificationOptions, 
 			candidates.photos = append(candidates.photos, indexedLivePhotoMedia{path: path, index: index})
 		case "video":
 			metadata, err := reader.VideoLivePhotoMetadata(path)
-			if errors.Is(err, ErrContentIdentifierMissing) && !options.IgnoreAppleMetadata {
+			if errors.Is(err, ErrContentIdentifierMissing) && (!options.IgnoreAppleMetadata || !metadata.HasStillImageTime) {
 				continue
 			}
 			if err != nil && !errors.Is(err, ErrContentIdentifierMissing) {
@@ -165,26 +172,25 @@ func ClassifyUploadWork(paths []string, options LivePhotoClassificationOptions, 
 			continue
 		}
 		if len(candidates.photos) > 1 || len(candidates.videos) > 1 {
-			ambiguousPaths := candidatePaths(candidates)
-			code := "ambiguous-identifier"
-			message := "Multiple files share one Live Photo identifier. Each is queued separately. To keep motion, select one original still and its matching MOV."
-			if options.IgnoreAppleMetadata {
-				code = "ambiguous-filename-stem"
-				message = "multiple photo or video candidates share one filename stem"
-				// Filename matching is an explicit override, so ambiguity must skip
-				// every candidate instead of silently falling back to single uploads.
-				for _, photo := range candidates.photos {
-					consumed[photo.index] = true
-				}
-				for _, video := range candidates.videos {
-					consumed[video.index] = true
-				}
+			paths := candidatePaths(candidates)
+			switch {
+			case options.IgnoreAppleMetadata:
+				warnings = append(warnings, PreflightWarning{Paths: paths, Code: "ambiguous-filename-stem",
+					Message: "multiple photo or video candidates share one filename stem"})
+			case options.HoldAmbiguous != nil:
+				split := len(candidates.photos)
+				options.HoldAmbiguous(LivePhotoGroup{ContentIdentifier: identifier, Photos: paths[:split:split], Videos: paths[split:]})
+			default:
+				warnings = append(warnings, PreflightWarning{Paths: paths, Code: "ambiguous-identifier",
+					Message: "Multiple files share one Live Photo identifier. Each is queued separately. To keep motion, select one original still and its matching MOV or MP4."})
+				continue
 			}
-			warnings = append(warnings, PreflightWarning{
-				Paths:   ambiguousPaths,
-				Code:    code,
-				Message: message,
-			})
+			for _, photo := range candidates.photos {
+				consumed[photo.index] = true
+			}
+			for _, video := range candidates.videos {
+				consumed[video.index] = true
+			}
 			continue
 		}
 		if options.SkipIncomplete {
@@ -202,7 +208,7 @@ func ClassifyUploadWork(paths []string, options LivePhotoClassificationOptions, 
 			warnings = append(warnings, PreflightWarning{
 				Paths:   orphanPaths,
 				Code:    "incomplete-live-photo-skipped",
-				Message: "Skipped an incomplete Live Photo. Add its matching still or MOV to the queue, or retry the available file on its own.",
+				Message: "Skipped an incomplete Live Photo. Add its matching still or motion video to the queue, or retry the available file on its own.",
 			})
 		}
 	}
@@ -251,7 +257,7 @@ func livePhotoCandidateType(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".heic", ".heif", ".jpg", ".jpeg":
 		return "photo"
-	case ".mov":
+	case ".mov", ".mp4":
 		return "video"
 	default:
 		return ""

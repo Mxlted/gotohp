@@ -37,6 +37,36 @@ func TestWailsReporterFrontendEvents(t *testing.T) {
 		Logger: slog.New(slog.DiscardHandler),
 	})
 	reporter := NewWailsReporter(app)
+	t.Run("Live Photo review", func(t *testing.T) {
+		groups := []core.LivePhotoGroup{{ContentIdentifier: "one", Photos: []string{"a.heic", "b.jpg"}, Videos: []string{"a.mov"}}}
+		pair := core.LivePhotoPair{ContentIdentifier: "one", PhotoPath: "a.heic", VideoPath: "a.mov"}
+		reviews := make(chan LivePhotoReview, 1)
+		off := app.Event.On("livePhotoReview", func(event *application.CustomEvent) { reviews <- event.Data.(LivePhotoReview) })
+		defer off()
+		for _, cancelReview := range []bool{false, true} {
+			cancel := make(chan struct{})
+			done := make(chan []core.LivePhotoPair, 1)
+			go func() { done <- reporter.ReviewLivePhotos(groups, cancel) }()
+			review := <-reviews
+			if review.ID == "" || !reflect.DeepEqual(review.Groups, groups) {
+				t.Fatalf("desktop received %+v", review)
+			}
+			app.Event.Emit("livePhotoReviewReply", LivePhotoReviewReply{ID: "earlier-batch"})
+			if cancelReview {
+				close(cancel)
+			} else {
+				app.Event.Emit("livePhotoReviewReply", LivePhotoReviewReply{ID: review.ID, Pairs: []core.LivePhotoPair{pair}})
+			}
+			select {
+			case got := <-done:
+				if (cancelReview && len(got) != 0) || (!cancelReview && !reflect.DeepEqual(got, []core.LivePhotoPair{pair})) {
+					t.Fatalf("cancel = %t, pairs = %+v", cancelReview, got)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("desktop review did not resume")
+			}
+		}
+	})
 	file := core.FileUploadResult{
 		IsError: true, IsLivePhoto: true, Path: "photo.heic",
 		Paths: []string{"photo.heic", "photo.mov"},

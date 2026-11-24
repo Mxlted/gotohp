@@ -41,7 +41,7 @@ func newUploadCommand() *cobra.Command {
 	f.StringP("album", "a", "", "add uploads to album (creates if needed); 'AUTO' creates albums from folder names")
 	f.Bool("pair-live-photos", false, "pair Apple Live Photo files; incomplete pairs are skipped")
 	f.Bool("upload-incomplete-live-photos", false, "upload an unmatched Live Photo member as a single file")
-	f.Bool("update-existing-photos-to-live", false, "attach matching MOV files to existing photos")
+	f.Bool("update-existing-photos-to-live", false, "attach matching MOV or MP4 motion videos to existing photos")
 	f.Bool("ignore-apple-metadata", false, "match Live Photo pairs by filename stem instead of Apple metadata")
 	f.StringP("log-level", "l", "info", "log level: debug, info, warn, error")
 	f.Bool("no-tui", false, "disable the interactive progress UI")

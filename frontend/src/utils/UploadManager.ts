@@ -1,5 +1,7 @@
 import { Clipboard, Events } from "@wailsio/runtime";
 import { reactive } from "vue";
+import type { LivePhotoReview } from "../../bindings/app/internal/gui/models";
+import type { LivePhotoPair } from "../../bindings/app/core/models";
 import {
   isSkippedUploadWarning,
   recordUploadResult,
@@ -61,6 +63,7 @@ export interface UploadState {
   threads: Map<number, ThreadStatus>;
   results: UploadResults;
   warnings: PreflightWarning[];
+  livePhotoReview: LivePhotoReview | null;
   // Byte tracking
   totalBytes: number;
   uploadedBytes: number;
@@ -90,6 +93,7 @@ class UploadManager {
       warnings: [],
     },
     warnings: [],
+    livePhotoReview: null,
     totalBytes: 0,
     uploadedBytes: 0,
     startTime: 0,
@@ -148,6 +152,7 @@ class UploadManager {
       this.totalBytesAdjustment = 0;
       this.resetUploadResults();
       this.state.warnings = [];
+      this.state.livePhotoReview = null;
     });
 
     // Handle async total bytes update (calculated after uploadStart)
@@ -208,8 +213,13 @@ class UploadManager {
       this.updateBytesAndSpeed();
     });
 
+    Events.On("livePhotoReview", ({ data }) => {
+      if (this.state.isUploading) this.state.livePhotoReview = data;
+    });
+
     // Handle upload stop
     Events.On("uploadStop", () => {
+      this.state.livePhotoReview = null;
       this.state.isUploading = false;
     });
 
@@ -282,6 +292,14 @@ class UploadManager {
 
   public cancelUpload() {
     return Events.Emit("uploadCancel");
+  }
+
+  public async submitLivePhotoPairs(id: string, pairs: LivePhotoPair[]) {
+    if (this.state.livePhotoReview?.id !== id) return;
+    if (await Events.Emit("livePhotoReviewReply", { id, pairs })) {
+      throw new Error("The upload did not accept the selection. Try again.");
+    }
+    if (this.state.livePhotoReview?.id === id) this.state.livePhotoReview = null;
   }
 
   public async copyResultsAsJson() {

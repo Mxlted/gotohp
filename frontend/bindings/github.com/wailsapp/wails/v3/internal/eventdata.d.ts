@@ -8,6 +8,9 @@ import type { Events } from "@wailsio/runtime";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import type * as core$0 from "../../../../../app/core/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import type * as gui$0 from "../../../../../app/internal/gui/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
@@ -18,6 +21,8 @@ declare module "@wailsio/runtime" {
             "albumError": core$0.AlbumError;
             "albumProgress": core$0.AlbumStatus;
             "files-dropped": core$0.FilesDroppedEvent;
+            "livePhotoReview": gui$0.LivePhotoReview;
+            "livePhotoReviewReply": gui$0.LivePhotoReviewReply;
             "startUpload": core$0.StartUploadEvent;
             "uploadCancel": void;
             "uploadStart": core$0.UploadBatchStart;

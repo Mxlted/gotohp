@@ -13,6 +13,8 @@ export {
     AlbumStatus,
     FileUploadResult,
     FilesDroppedEvent,
+    LivePhotoGroup,
+    LivePhotoPair,
     Preferences,
     PreflightWarning,
     StartUploadEvent,

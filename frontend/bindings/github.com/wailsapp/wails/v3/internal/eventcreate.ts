@@ -9,6 +9,9 @@ import { Create as $Create } from "@wailsio/runtime";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as core$0 from "../../../../../app/core/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as gui$0 from "../../../../../app/internal/gui/models.js";
 
 function configure() {
     Object.freeze(Object.assign($Create.Events, {
@@ -18,9 +21,11 @@ function configure() {
         "albumError": $$createType3,
         "albumProgress": $$createType2,
         "files-dropped": $$createType4,
-        "startUpload": $$createType5,
-        "uploadStart": $$createType6,
-        "uploadWarning": $$createType7,
+        "livePhotoReview": $$createType5,
+        "livePhotoReviewReply": $$createType6,
+        "startUpload": $$createType7,
+        "uploadStart": $$createType8,
+        "uploadWarning": $$createType9,
     }));
 }
 
@@ -30,8 +35,10 @@ const $$createType1 = core$0.ThreadStatus.createFrom;
 const $$createType2 = core$0.AlbumStatus.createFrom;
 const $$createType3 = core$0.AlbumError.createFrom;
 const $$createType4 = core$0.FilesDroppedEvent.createFrom;
-const $$createType5 = core$0.StartUploadEvent.createFrom;
-const $$createType6 = core$0.UploadBatchStart.createFrom;
-const $$createType7 = core$0.PreflightWarning.createFrom;
+const $$createType5 = gui$0.LivePhotoReview.createFrom;
+const $$createType6 = gui$0.LivePhotoReviewReply.createFrom;
+const $$createType7 = core$0.StartUploadEvent.createFrom;
+const $$createType8 = core$0.UploadBatchStart.createFrom;
+const $$createType9 = core$0.PreflightWarning.createFrom;
 
 configure();

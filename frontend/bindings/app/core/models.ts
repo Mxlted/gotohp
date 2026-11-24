@@ -220,6 +220,72 @@ export class FilesDroppedEvent {
     }
 }
 
+export class LivePhotoGroup {
+    "contentIdentifier": string;
+    "photos": string[];
+    "videos": string[];
+
+    /** Creates a new LivePhotoGroup instance. */
+    constructor($$source: Partial<LivePhotoGroup> = {}) {
+        if (!("contentIdentifier" in $$source)) {
+            this["contentIdentifier"] = "";
+        }
+        if (!("photos" in $$source)) {
+            this["photos"] = [];
+        }
+        if (!("videos" in $$source)) {
+            this["videos"] = [];
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LivePhotoGroup instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LivePhotoGroup {
+        const $$createField1_0 = $$createType2;
+        const $$createField2_0 = $$createType2;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("photos" in $$parsedSource) {
+            $$parsedSource["photos"] = $$createField1_0($$parsedSource["photos"]);
+        }
+        if ("videos" in $$parsedSource) {
+            $$parsedSource["videos"] = $$createField2_0($$parsedSource["videos"]);
+        }
+        return new LivePhotoGroup($$parsedSource as Partial<LivePhotoGroup>);
+    }
+}
+
+export class LivePhotoPair {
+    "contentIdentifier": string;
+    "photoPath": string;
+    "videoPath": string;
+
+    /** Creates a new LivePhotoPair instance. */
+    constructor($$source: Partial<LivePhotoPair> = {}) {
+        if (!("contentIdentifier" in $$source)) {
+            this["contentIdentifier"] = "";
+        }
+        if (!("photoPath" in $$source)) {
+            this["photoPath"] = "";
+        }
+        if (!("videoPath" in $$source)) {
+            this["videoPath"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LivePhotoPair instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LivePhotoPair {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LivePhotoPair($$parsedSource as Partial<LivePhotoPair>);
+    }
+}
+
 /**
  * Preferences are GUI settings. The CLI never reads them; every CLI run is
  * configured by flags alone.

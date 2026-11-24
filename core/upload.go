@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,7 +53,6 @@ func (e StartUploadEvent) UploadOptions(opts UploadOptions) UploadOptions {
 
 type UploadManager struct {
 	mu       sync.Mutex
-	wg       sync.WaitGroup
 	cancel   chan struct{}
 	canceled bool
 	running  bool
@@ -170,7 +170,13 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 	// be cancelled from the UI.
 	m.reporter.UploadStart(UploadBatchStart{})
 
-	workItems, preflightWarnings, err := PlanUpload(paths, opts, m.isCancelled)
+	var groups []LivePhotoGroup
+	var hold func(LivePhotoGroup)
+	reviewer, interactive := m.reporter.(LivePhotoReviewer)
+	if interactive {
+		hold = func(group LivePhotoGroup) { groups = append(groups, group) }
+	}
+	workItems, preflightWarnings, err := planUpload(paths, opts, m.isCancelled, hold)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			m.finish()
@@ -184,15 +190,16 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 		m.finish()
 		return
 	}
-	if len(workItems) == 0 && len(preflightWarnings) == 0 {
+	itemCount := len(workItems) + len(groups)
+	if itemCount == 0 && len(preflightWarnings) == 0 {
 		preflightWarnings = append(preflightWarnings, PreflightWarning{
 			Code:    "no-matching-files",
 			Message: "No files matched the current file type and folder settings.",
 		})
 	}
-	m.reportPreflight(len(workItems), preflightWarnings)
+	m.reportPreflight(itemCount, preflightWarnings)
 
-	if len(workItems) == 0 {
+	if itemCount == 0 {
 		m.finish()
 		return
 	}
@@ -207,27 +214,40 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 				Path:         path,
 			})
 		}
+		for _, group := range groups {
+			m.reporter.FileResult(group.resultWithError(err))
+		}
 		m.finish()
 		return
 	}
 
-	// Don't start more threads than files to process
-	numWorkers := min(opts.Threads, len(workItems))
+	go func() {
+		defer m.finish()
+		albumItems := m.transferItems(workItems, opts, m.reporter.TotalBytes)
+		if len(groups) > 0 && !m.isCancelled() {
+			choices := reviewer.ReviewLivePhotos(groups, m.getCancelChan())
+			pairs := m.reviewedWorkItems(groups, choices)
+			maps.Copy(albumItems, m.transferItems(pairs, opts, m.reporter.TotalBytesDelta))
+		}
+		m.logger.Info("upload complete", "filesWithMediaKeys", len(albumItems),
+			"albumName", opts.AlbumName, "albumAutoMode", opts.AlbumAutoMode)
+		if len(albumItems) > 0 {
+			m.handleAlbumCreation(albumItems, opts.AlbumName, opts.AlbumAutoMode)
+		}
+	}()
+}
 
-	// Create a worker pool for concurrent uploads
+func (m *UploadManager) transferItems(workItems []UploadWorkItem, opts UploadOptions, reportSize func(int64)) map[string]string {
+	if len(workItems) == 0 {
+		return make(map[string]string)
+	}
 	workChan := make(chan UploadWorkItem, len(workItems))
 	results := make(chan FileUploadResult, len(workItems))
-
-	// Start workers
-	for i := range numWorkers {
-		m.wg.Add(1)
-		go m.runWorker(i, workChan, results, opts)
+	var workers sync.WaitGroup
+	for i := range min(opts.Threads, len(workItems)) {
+		workers.Go(func() { m.runWorker(i, workChan, results, opts) })
 	}
-
-	// Send work to workers
-	m.wg.Add(1)
 	go func() {
-		defer m.wg.Done()
 		var totalBytes int64
 	LOOP:
 		for _, item := range workItems {
@@ -243,28 +263,12 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 			case workChan <- item:
 			}
 		}
-		m.reporter.TotalBytes(totalBytes)
+		reportSize(totalBytes)
 		close(workChan)
+		workers.Wait()
+		close(results)
 	}()
-
-	// Handle results, wait for completion, and create album if configured
-	go func() {
-		// Wait for all workers to finish in a separate goroutine, then close results
-		go func() {
-			m.wg.Wait()
-			close(results)
-		}()
-
-		albumItems := m.collectResults(results)
-		m.logger.Info("upload complete", "filesWithMediaKeys", len(albumItems),
-			"albumName", opts.AlbumName, "albumAutoMode", opts.AlbumAutoMode)
-
-		if len(albumItems) > 0 {
-			m.handleAlbumCreation(albumItems, opts.AlbumName, opts.AlbumAutoMode)
-		}
-
-		m.finish()
-	}()
+	return m.collectResults(results)
 }
 
 func (m *UploadManager) collectResults(results <-chan FileUploadResult) map[string]string {
@@ -505,6 +509,10 @@ func FilterGooglePhotosFiles(paths []string, opts UploadOptions) ([]string, erro
 // PlanUpload expands the local selection and groups Live Photos in upload order.
 // It reads local files only. Callers can supply a cancellation check for large selections.
 func PlanUpload(paths []string, opts UploadOptions, cancelled func() bool) ([]UploadWorkItem, []PreflightWarning, error) {
+	return planUpload(paths, opts, cancelled, nil)
+}
+
+func planUpload(paths []string, opts UploadOptions, cancelled func() bool, hold func(LivePhotoGroup)) ([]UploadWorkItem, []PreflightWarning, error) {
 	files, scanWarnings, err := filterGooglePhotosFilesWithCancel(paths, opts, cancelled)
 	if err != nil {
 		return nil, nil, err
@@ -515,6 +523,7 @@ func PlanUpload(paths []string, opts UploadOptions, cancelled func() bool) ([]Up
 		AllowIncompletePaths: opts.AllowIncompletePaths,
 		IgnoreAppleMetadata:  opts.IgnoreAppleMetadata,
 		Cancelled:            cancelled,
+		HoldAmbiguous:        hold,
 	}, nil)
 	if cancelled != nil && cancelled() {
 		return nil, nil, context.Canceled
@@ -756,7 +765,6 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 }
 
 func (m *UploadManager) runWorker(workerID int, workChan <-chan UploadWorkItem, results chan<- FileUploadResult, opts UploadOptions) {
-	defer m.wg.Done()
 	cancel := m.getCancelChan()
 
 	// Emit idle status initially

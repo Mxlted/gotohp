@@ -5,6 +5,7 @@ import { Album, Clock, Gauge, Square, HardDrive } from '@lucide/vue'
 import { Button } from './components/ui/button'
 import { Progress } from './components/ui/progress'
 import ThreadProgress from './components/ThreadProgress.vue'
+import LivePhotoPicker from './components/LivePhotoPicker.vue'
 import UploadWarnings from './components/UploadWarnings.vue'
 import { uploadManager } from './utils/UploadManager'
 import { formatBytes } from './utils/formatBytes'
@@ -49,6 +50,12 @@ async function cancelUpload() {
 <template>
   <div class="workspace-grid">
     <div class="source-column">
+      <LivePhotoPicker
+        v-if="state.livePhotoReview"
+        :key="state.livePhotoReview.id"
+        :review="state.livePhotoReview"
+        :disabled="isCancelling"
+      />
       <section
         class="batch-progress"
         aria-labelledby="batch-title"
@@ -81,6 +88,7 @@ async function cancelUpload() {
         </p>
       </section>
       <section
+        v-if="!state.livePhotoReview"
         class="panel"
         aria-labelledby="activity-heading"
       >

@@ -16,6 +16,8 @@ func init() {
 	application.RegisterEvent[core.FileUploadResult]("FileStatus")
 	application.RegisterEvent[core.ThreadStatus]("ThreadStatus")
 	application.RegisterEvent[core.PreflightWarning]("uploadWarning")
+	application.RegisterEvent[LivePhotoReview]("livePhotoReview")
+	application.RegisterEvent[LivePhotoReviewReply]("livePhotoReviewReply")
 	application.RegisterEvent[application.Void]("uploadCancel")
 	application.RegisterEvent[int64]("uploadTotalBytes")
 	application.RegisterEvent[int64]("uploadTotalBytesDelta")

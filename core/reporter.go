@@ -18,6 +18,12 @@ type UploadReporter interface {
 	AlbumError(AlbumError)
 }
 
+// An interactive reporter can hold ambiguous Live Photos until the other
+// transfers finish. Omitting a group from the reply leaves its files on disk.
+type LivePhotoReviewer interface {
+	ReviewLivePhotos(groups []LivePhotoGroup, cancel <-chan struct{}) []LivePhotoPair
+}
+
 // NopReporter discards every event.
 type NopReporter struct{}
 

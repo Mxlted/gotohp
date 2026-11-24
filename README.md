@@ -31,7 +31,11 @@ If Google returns the same media ID for two ordinary transfers in one batch, **W
 
 If you enable **Delete From Host After Upload**, gotohp reads each local file again before deleting it. If its contents have changed, gotohp keeps the file and records a warning. For a Live Photo, it checks both components before removing either one.
 
-**Retry incomplete files** returns the skipped Live Photo files to the queue for review. Add a matching still or MOV to keep the motion. When you click **Start upload**, each retried file still missing its companion uploads as an ordinary photo or video. Other files follow your usual settings. If several files share a Live Photo identifier, gotohp already queues them separately. To make a Live Photo from that group, select just one original still and its matching MOV.
+With Live Photo pairing enabled, the desktop app holds files that share an ambiguous Live Photo identifier until the other transfers finish. In **Choose a Live Photo pair**, each still shows whether the batch includes a matching motion video in its folder. The app recognizes MOV and MP4 companions by their embedded Apple identifier and still-image-time marker. Choose one still and video, or skip the group. The selected pair uses the batch's destination. Unselected files stay on your computer.
+
+To preselect pairs across the batch, open **Folder priority**, use the arrows to put **Year folders** or **Album folders** first, then click **Auto-pick pairs**. A folder with both files takes priority. If several folders contain a pair, your folder order chooses between them. Year folders include names like `Photos From 2026` and `2026`, and unnumbered folders take priority over copies such as `Family & friends(1)`. If every pair spans two folders, the picker ranks each part separately. The app remembers your folder order. You can change or skip each suggestion before the final upload click. Applying the order again preserves your manual choices and the groups you already reviewed.
+
+**Retry incomplete files** returns the skipped Live Photo files to the queue for review. Add the matching still or motion video to keep the motion. When you click **Start upload**, each retried file still missing its companion uploads as an ordinary photo or video. Other files follow your usual settings.
 
 To recover skips from an earlier session, use **Copy as JSON** in its upload results. In the new window, click **Paste skipped files** in the empty upload queue, then review the destination and start the upload.
 

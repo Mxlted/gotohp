@@ -34,7 +34,7 @@ export function incompleteLivePhotoPaths(report: unknown): string[] {
   for (const item of report.skipped) {
     if (!isIncompleteLivePhotoSkip(item?.code) || !Array.isArray(item.paths)) continue
     for (const path of item.paths) {
-      if (typeof path === 'string' && /\.(?:heic|heif|jpe?g|mov)$/i.test(path)) paths.add(path)
+      if (typeof path === 'string' && /\.(?:heic|heif|jpe?g|mov|mp4)$/i.test(path)) paths.add(path)
     }
   }
   return [...paths]

@@ -260,7 +260,7 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
             </button>
           </TooltipTrigger>
           <TooltipContent class="max-w-72">
-            Identify Apple Live Photo image and MOV pairs via embedded metadata and upload them as one item.
+            Match a still image to its MOV or MP4 companion using embedded Apple metadata and upload them as one Live Photo.
           </TooltipContent>
         </Tooltip>
       </div>
@@ -328,7 +328,7 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
             </button>
           </TooltipTrigger>
           <TooltipContent class="max-w-72">
-            If a static photo was already uploaded, re-upload it alongside its MOV companion to upgrade it to a Live Photo. Both local photo and video files are required.
+            If a static photo was already uploaded, re-upload it alongside its motion video to upgrade it to a Live Photo. Both local files are required.
           </TooltipContent>
         </Tooltip>
       </div>
