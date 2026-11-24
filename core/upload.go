@@ -138,7 +138,7 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 	// be cancelled from the UI.
 	m.reporter.UploadStart(UploadBatchStart{})
 
-	targetPaths, err := filterGooglePhotosFilesWithCancel(paths, opts, m.isCancelled)
+	workItems, preflightWarnings, err := PlanUpload(paths, opts, m.isCancelled)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			m.finish()
@@ -149,16 +149,6 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 			Error:        err,
 			ErrorMessage: err.Error(),
 		})
-		m.finish()
-		return
-	}
-	workItems, preflightWarnings := ClassifyUploadWork(targetPaths, LivePhotoClassificationOptions{
-		Enabled:             opts.PairLivePhotos,
-		SkipIncomplete:      opts.SkipIncompleteLivePhotos,
-		IgnoreAppleMetadata: opts.IgnoreAppleMetadata,
-		Cancelled:           m.isCancelled,
-	}, nil)
-	if m.isCancelled() {
 		m.finish()
 		return
 	}
@@ -187,7 +177,7 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 	go func() {
 		var totalBytes int64
 		for _, item := range workItems {
-			for _, path := range uploadWorkPaths(item) {
+			for _, path := range item.Paths() {
 				if info, err := os.Stat(path); err == nil {
 					totalBytes += info.Size()
 				}
@@ -268,7 +258,7 @@ func (m *UploadManager) finish() {
 func (m *UploadManager) reportPreflight(uploadItemCount int, warnings []PreflightWarning) {
 	skippedCount := 0
 	for _, warning := range warnings {
-		if isSkippedPreflightWarning(warning.Code) {
+		if IsSkippedPreflightWarning(warning.Code) {
 			skippedCount++
 		}
 	}
@@ -281,7 +271,7 @@ func (m *UploadManager) reportPreflight(uploadItemCount int, warnings []Prefligh
 	})
 	for _, warning := range warnings {
 		m.reporter.Warning(warning)
-		if !isSkippedPreflightWarning(warning.Code) {
+		if !IsSkippedPreflightWarning(warning.Code) {
 			continue
 		}
 		primaryPath := ""
@@ -299,7 +289,8 @@ func (m *UploadManager) reportPreflight(uploadItemCount int, warnings []Prefligh
 	}
 }
 
-func isSkippedPreflightWarning(code string) bool {
+// IsSkippedPreflightWarning reports whether the affected paths were left out of the plan.
+func IsSkippedPreflightWarning(code string) bool {
 	return code == "incomplete-live-photo-skipped" || code == "ambiguous-filename-stem"
 }
 
@@ -456,6 +447,25 @@ func scanDirectoryForFiles(path string, recursive bool, excludePattern string, c
 // under opts: directories are scanned, unsupported files dropped, duplicates removed.
 func FilterGooglePhotosFiles(paths []string, opts UploadOptions) ([]string, error) {
 	return filterGooglePhotosFilesWithCancel(paths, opts, nil)
+}
+
+// PlanUpload expands the local selection and groups Live Photos in upload order.
+// It reads local files only. Callers can supply a cancellation check for large selections.
+func PlanUpload(paths []string, opts UploadOptions, cancelled func() bool) ([]UploadWorkItem, []PreflightWarning, error) {
+	files, err := filterGooglePhotosFilesWithCancel(paths, opts, cancelled)
+	if err != nil {
+		return nil, nil, err
+	}
+	items, warnings := ClassifyUploadWork(files, LivePhotoClassificationOptions{
+		Enabled:             opts.PairLivePhotos,
+		SkipIncomplete:      opts.SkipIncompleteLivePhotos,
+		IgnoreAppleMetadata: opts.IgnoreAppleMetadata,
+		Cancelled:           cancelled,
+	}, nil)
+	if cancelled != nil && cancelled() {
+		return nil, nil, context.Canceled
+	}
+	return items, warnings, nil
 }
 
 func filterGooglePhotosFilesWithCancel(paths []string, opts UploadOptions, cancelled func() bool) ([]string, error) {
@@ -727,7 +737,7 @@ func (m *UploadManager) runWorker(workerID int, workChan <-chan UploadWorkItem, 
 			}()
 
 			path := uploadWorkPrimaryPath(item)
-			paths := uploadWorkPaths(item)
+			paths := item.Paths()
 			isLivePhoto := item.Kind == UploadWorkLivePhoto
 			mediaKey, skipped, err := uploadWorkItem(ctx, api, item, opts, workerID, m.reporter)
 			if err != nil && mediaKey != "" {
@@ -820,7 +830,8 @@ func uploadWorkItem(ctx context.Context, api *Api, item UploadWorkItem, opts Upl
 	}
 }
 
-func uploadWorkPaths(item UploadWorkItem) []string {
+// Paths returns the local files in one work item, with the still image first for a Live Photo.
+func (item UploadWorkItem) Paths() []string {
 	if item.Kind == UploadWorkLivePhoto && item.LivePhoto != nil {
 		return []string{item.LivePhoto.PhotoPath, item.LivePhoto.VideoPath}
 	}
@@ -831,7 +842,7 @@ func uploadWorkPaths(item UploadWorkItem) []string {
 }
 
 func uploadWorkPrimaryPath(item UploadWorkItem) string {
-	paths := uploadWorkPaths(item)
+	paths := item.Paths()
 	if len(paths) == 0 {
 		return ""
 	}

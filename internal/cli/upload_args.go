@@ -31,6 +31,7 @@ func newUploadCommand() *cobra.Command {
 	f.Bool("use-quota", false, "count uploads against the account's storage quota")
 	f.Bool("saver", false, "upload in storage saver quality")
 	f.BoolP("recursive", "r", false, "include subdirectories")
+	f.Bool("dry-run", false, "print the local upload plan as JSON without connecting or changing files")
 	f.IntP("threads", "t", core.DefaultPreferences.UploadThreads, "number of upload threads")
 	f.BoolP("force", "f", false, "upload even if the file already exists in the library")
 	f.BoolP("delete", "d", false, "delete from host after upload")
@@ -69,15 +70,17 @@ func runUploadCommand(cmd *cobra.Command, paths []string) error {
 		return fmt.Errorf("threads must be a positive integer, got %d", threads)
 	}
 
-	// Like rclone, the config file holds only the account; every upload option
-	// is per-invocation so a scripted run behaves the same regardless of GUI state.
-	configPath, _ := f.GetString("config")
-	if err := core.LoadConfig(configPath); err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
 	opts := uploadOptionsFromFlags(f)
 	if err := validateUploadOptions(f, opts); err != nil {
 		return err
+	}
+	if dryRun, _ := f.GetBool("dry-run"); dryRun {
+		return writeUploadPreview(cmd, paths, opts)
+	}
+
+	configPath, _ := f.GetString("config")
+	if err := core.LoadConfig(configPath); err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	logLevel, _ := f.GetString("log-level")
