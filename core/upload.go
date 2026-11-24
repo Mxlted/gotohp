@@ -21,8 +21,9 @@ type FilesDroppedEvent struct {
 
 // StartUploadEvent is received from frontend to start upload
 type StartUploadEvent struct {
-	Files       []string           `json:"files"`
-	Destination *UploadDestination `json:"destination,omitempty"`
+	Files                []string           `json:"files"`
+	Destination          *UploadDestination `json:"destination,omitempty"`
+	AllowIncompletePaths []string           `json:"allowIncompletePaths,omitempty"`
 }
 
 // UploadDestination is the account and album chosen for one reviewed desktop batch.
@@ -32,12 +33,18 @@ type UploadDestination struct {
 	AutoAlbum bool   `json:"autoAlbum"`
 }
 
-// UploadOptions applies the reviewed destination to a copy of the session preferences.
+// UploadOptions applies the reviewed destination and per-file retries to this run.
 func (e StartUploadEvent) UploadOptions(opts UploadOptions) UploadOptions {
 	if e.Destination != nil {
 		opts.Api.Account = e.Destination.Account
 		opts.AlbumName = strings.TrimSpace(e.Destination.AlbumName)
 		opts.AlbumAutoMode = e.Destination.AutoAlbum
+	}
+	if len(e.AllowIncompletePaths) > 0 {
+		opts.AllowIncompletePaths = make(map[string]bool, len(e.AllowIncompletePaths))
+		for _, path := range e.AllowIncompletePaths {
+			opts.AllowIncompletePaths[path] = true
+		}
 	}
 	return opts
 }
@@ -197,19 +204,6 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 		return
 	}
 
-	// Calculate total bytes asynchronously and emit update when complete
-	go func() {
-		var totalBytes int64
-		for _, item := range workItems {
-			for _, path := range item.Paths() {
-				if info, err := os.Stat(path); err == nil {
-					totalBytes += info.Size()
-				}
-			}
-		}
-		m.reporter.TotalBytes(totalBytes)
-	}()
-
 	// Don't start more threads than files to process
 	numWorkers := min(opts.Threads, len(workItems))
 
@@ -224,51 +218,81 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 	}
 
 	// Send work to workers
+	m.wg.Add(1)
 	go func() {
+		defer m.wg.Done()
+		var totalBytes int64
 	LOOP:
 		for _, item := range workItems {
+			// Size each item before a worker can remove a confirmed local copy.
+			for _, path := range item.Paths() {
+				if info, err := os.Stat(path); err == nil {
+					totalBytes += info.Size()
+				}
+			}
 			select {
 			case <-m.cancel:
 				break LOOP
 			case workChan <- item:
 			}
 		}
+		m.reporter.TotalBytes(totalBytes)
 		close(workChan)
 	}()
 
 	// Handle results, wait for completion, and create album if configured
 	go func() {
-		// Collect successful uploads with path -> mediaKey mapping for AUTO mode
-		successfulUploads := make(map[string]string) // path -> mediaKey
-
 		// Wait for all workers to finish in a separate goroutine, then close results
 		go func() {
 			m.wg.Wait()
 			close(results)
 		}()
 
-		// Process all results (this blocks until results channel is closed)
-		for result := range results {
-			m.reporter.FileResult(result)
-			if result.IsError {
-				m.logger.Error("upload error", "path", result.Path, "error", result.Error)
-			} else {
-				m.logger.Info("upload success", "path", result.Path)
-				if result.MediaKey != "" {
-					successfulUploads[result.Path] = result.MediaKey
-				}
-			}
-		}
-
-		m.logger.Info("upload complete", "successful", len(successfulUploads),
+		albumItems := m.collectResults(results)
+		m.logger.Info("upload complete", "filesWithMediaKeys", len(albumItems),
 			"albumName", opts.AlbumName, "albumAutoMode", opts.AlbumAutoMode)
 
-		if len(successfulUploads) > 0 {
-			m.handleAlbumCreation(successfulUploads, opts.AlbumName, opts.AlbumAutoMode)
+		if len(albumItems) > 0 {
+			m.handleAlbumCreation(albumItems, opts.AlbumName, opts.AlbumAutoMode)
 		}
 
 		m.finish()
 	}()
+}
+
+func (m *UploadManager) collectResults(results <-chan FileUploadResult) map[string]string {
+	albumItems := make(map[string]string)
+	transferredPaths := make(map[string]string)
+	for result := range results {
+		m.reporter.FileResult(result)
+		if result.IsError {
+			m.logger.Error("upload error", "path", result.Path, "error", result.Error)
+			continue
+		}
+		if result.MediaKey != "" {
+			albumItems[result.Path] = result.MediaKey
+		}
+		if result.Skipped {
+			m.logger.Info("upload skipped", "path", result.Path, "reason", result.SkipCode)
+			continue
+		}
+		m.logger.Info("upload success", "path", result.Path)
+		// Reconciliation intentionally targets an existing Live Photo. Only compare
+		// receipts from ordinary transfers within this account and batch.
+		if result.IsLivePhoto || result.MediaKey == "" {
+			continue
+		}
+		if previous, found := transferredPaths[result.MediaKey]; found {
+			m.reporter.Warning(PreflightWarning{
+				Paths:   []string{previous, result.Path},
+				Code:    "same-remote-item",
+				Message: "Google Photos returned the same media ID for both transfers. These files share one library item.",
+			})
+		} else {
+			transferredPaths[result.MediaKey] = result.Path
+		}
+	}
+	return albumItems
 }
 
 // finish signals the end of a run and releases the manager for the next one.
@@ -315,7 +339,7 @@ func (m *UploadManager) reportPreflight(uploadItemCount int, warnings []Prefligh
 
 // IsSkippedPreflightWarning reports whether the affected paths were left out of the plan.
 func IsSkippedPreflightWarning(code string) bool {
-	return code == "incomplete-live-photo-skipped" || code == "ambiguous-filename-stem"
+	return code == "incomplete-live-photo-skipped" || code == "incomplete-live-photo-unavailable" || code == "ambiguous-filename-stem"
 }
 
 // handleAlbumCreation handles album creation based on config (manual name/key or AUTO mode)
@@ -467,30 +491,33 @@ func scanDirectoryForFiles(path string, recursive bool, excludePattern string, c
 // FilterGooglePhotosFiles expands paths into the files that would be uploaded
 // under opts: directories are scanned, unsupported files dropped, duplicates removed.
 func FilterGooglePhotosFiles(paths []string, opts UploadOptions) ([]string, error) {
-	return filterGooglePhotosFilesWithCancel(paths, opts, nil)
+	files, _, err := filterGooglePhotosFilesWithCancel(paths, opts, nil)
+	return files, err
 }
 
 // PlanUpload expands the local selection and groups Live Photos in upload order.
 // It reads local files only. Callers can supply a cancellation check for large selections.
 func PlanUpload(paths []string, opts UploadOptions, cancelled func() bool) ([]UploadWorkItem, []PreflightWarning, error) {
-	files, err := filterGooglePhotosFilesWithCancel(paths, opts, cancelled)
+	files, scanWarnings, err := filterGooglePhotosFilesWithCancel(paths, opts, cancelled)
 	if err != nil {
 		return nil, nil, err
 	}
 	items, warnings := ClassifyUploadWork(files, LivePhotoClassificationOptions{
-		Enabled:             opts.PairLivePhotos,
-		SkipIncomplete:      opts.SkipIncompleteLivePhotos,
-		IgnoreAppleMetadata: opts.IgnoreAppleMetadata,
-		Cancelled:           cancelled,
+		Enabled:              opts.PairLivePhotos,
+		SkipIncomplete:       opts.SkipIncompleteLivePhotos,
+		AllowIncompletePaths: opts.AllowIncompletePaths,
+		IgnoreAppleMetadata:  opts.IgnoreAppleMetadata,
+		Cancelled:            cancelled,
 	}, nil)
 	if cancelled != nil && cancelled() {
 		return nil, nil, context.Canceled
 	}
-	return items, warnings, nil
+	return items, append(scanWarnings, warnings...), nil
 }
 
-func filterGooglePhotosFilesWithCancel(paths []string, opts UploadOptions, cancelled func() bool) ([]string, error) {
+func filterGooglePhotosFilesWithCancel(paths []string, opts UploadOptions, cancelled func() bool) ([]string, []PreflightWarning, error) {
 	var supportedFiles []string
+	var warnings []PreflightWarning
 	type seenUploadFile struct {
 		canonicalPath string
 		info          os.FileInfo
@@ -530,33 +557,41 @@ func filterGooglePhotosFilesWithCancel(paths []string, opts UploadOptions, cance
 
 	for _, path := range paths {
 		if cancelled != nil && cancelled() {
-			return nil, context.Canceled
+			return nil, nil, context.Canceled
 		}
 		fileInfo, err := os.Stat(path)
+		if opts.AllowIncompletePaths[path] && (err != nil || !fileInfo.Mode().IsRegular()) {
+			warnings = append(warnings, PreflightWarning{
+				Paths:   []string{path},
+				Code:    "incomplete-live-photo-unavailable",
+				Message: "Could not retry this Live Photo. Restore the original file at this path and try again.",
+			})
+			continue
+		}
 		if err != nil {
-			return nil, fmt.Errorf("error accessing path %s: %w", path, err)
+			return nil, nil, fmt.Errorf("error accessing path %s: %w", path, err)
 		}
 
 		if fileInfo.IsDir() {
 			files, err := scanDirectoryForFiles(path, opts.Recursive, opts.ExcludePattern, cancelled)
 			if err != nil {
-				return nil, fmt.Errorf("error scanning directory %s: %w", path, err)
+				return nil, nil, fmt.Errorf("error scanning directory %s: %w", path, err)
 			}
 
 			for _, file := range files {
 				if cancelled != nil && cancelled() {
-					return nil, context.Canceled
+					return nil, nil, context.Canceled
 				}
 				if err := appendFile(file, nil); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 			}
 		} else if err := appendFile(path, fileInfo); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	return supportedFiles, nil
+	return supportedFiles, warnings, nil
 }
 
 func canonicalUploadPath(path string) string {
@@ -575,24 +610,14 @@ func UploadFile(ctx context.Context, api *Api, filePath string, opts UploadOptio
 	if reporter == nil {
 		reporter = NopReporter{}
 	}
-	return uploadSingleFile(ctx, api, filePath, opts, workerID, reporter)
+	key, _, err := uploadSingleFile(ctx, api, filePath, opts, workerID, reporter)
+	return key, err
 }
 
-func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts UploadOptions, workerID int, reporter UploadReporter) (string, error) {
-	fileName := filepath.Base(filePath)
-	mediakey := ""
+const remoteDuplicateReason = "Google Photos matched the file contents before upload."
 
-	// Determine the timestamp to use for the upload.
-	// Default to file mtime, but allow filename-based timestamp to take precedence if enabled.
-	var uploadTimestamp int64
-	if info, err := os.Stat(filePath); err == nil {
-		uploadTimestamp = info.ModTime().Unix()
-	}
-	if opts.SetDateFromFilename {
-		if t, ok := parseTimestampFromFilename(filePath); ok {
-			uploadTimestamp = t.Unix()
-		}
-	}
+func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts UploadOptions, workerID int, reporter UploadReporter) (string, bool, error) {
+	fileName := filepath.Base(filePath)
 
 	// Stage 1: Hashing
 	reporter.ThreadStatus(ThreadStatus{
@@ -603,12 +628,10 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 		Message:  "Hashing...",
 	})
 
-	sha1_hash_bytes, err := CalculateSHA1(ctx, filePath)
+	sha1Hash, fileInfo, err := fileSHA1(ctx, filePath)
 	if err != nil {
-		return "", fmt.Errorf("error calculating hash file: %w", err)
+		return "", false, fmt.Errorf("error calculating file hash: %w", err)
 	}
-
-	sha1_hash_b64 := base64.StdEncoding.EncodeToString([]byte(sha1_hash_bytes))
 
 	// Stage 2: Checking if exists in library
 	if !opts.ForceUpload {
@@ -620,37 +643,29 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 			Message:  "Checking if file exists in library...",
 		})
 
-		mediakey, err = api.FindRemoteMediaByHash(sha1_hash_bytes)
+		mediaKey, err := api.FindRemoteMediaByHash(sha1Hash)
 		if err != nil {
-			// Non-fatal: log via callback and continue with upload
-			reporter.ThreadStatus(ThreadStatus{
-				WorkerID: workerID,
-				Status:   "checking",
-				FilePath: filePath,
-				FileName: fileName,
-				Message:  fmt.Sprintf("Hash check warning: %v, proceeding with upload", err),
+			reporter.Warning(PreflightWarning{
+				Paths:   []string{filePath},
+				Code:    "remote-check-failed",
+				Message: fmt.Sprintf("The Google Photos duplicate check failed (%v). Continuing with the upload.", err),
 			})
-		}
-		if len(mediakey) > 0 {
+		} else if mediaKey != "" {
+			reporter.TotalBytesDelta(-fileInfo.Size())
 			reporter.ThreadStatus(ThreadStatus{
 				WorkerID: workerID,
-				Status:   "completed",
+				Status:   "skipped",
 				FilePath: filePath,
 				FileName: fileName,
-				Message:  "Already in library",
+				Message:  remoteDuplicateReason,
 			})
 			if opts.DeleteFromHost {
-				if err := os.Remove(filePath); err != nil {
-					return mediakey, fmt.Errorf("file exists in library but failed to delete local copy: %w", err)
+				if err := removeConfirmedFiles(ctx, confirmedLocalFile{filePath, sha1Hash}); err != nil {
+					return mediaKey, true, fmt.Errorf("file exists in library but failed to delete local copy: %w", err)
 				}
 			}
-			return mediakey, nil
+			return mediaKey, true, nil
 		}
-	}
-
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return "", fmt.Errorf("error getting file info: %w", err)
 	}
 
 	// Stage 3: Uploading
@@ -665,9 +680,9 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 		BytesTotal:    fileSize,
 	})
 
-	token, err := api.GetUploadToken(sha1_hash_b64, fileSize)
+	token, err := api.GetUploadToken(base64.StdEncoding.EncodeToString(sha1Hash), fileSize)
 	if err != nil {
-		return "", fmt.Errorf("error uploading file: %w", err)
+		return "", false, fmt.Errorf("error uploading file: %w", err)
 	}
 
 	// Create progress callback for upload
@@ -690,11 +705,11 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 
 	finalizeToken, err := api.UploadFileWithProgress(ctx, filePath, token, progressCallback)
 	if err != nil {
-		return "", fmt.Errorf("error uploading file: %w", err)
+		return "", false, fmt.Errorf("error uploading file: %w", err)
 	}
 	commitToken, err := finalizeToken.legacyCommitToken()
 	if err != nil {
-		return "", fmt.Errorf("error decoding upload finalize token: %w", err)
+		return "", false, fmt.Errorf("error decoding upload finalize token: %w", err)
 	}
 
 	// Stage 4: Finalizing
@@ -706,22 +721,28 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 		Message:  "Committing upload...",
 	})
 
-	mediaKey, err := api.CommitUpload(commitToken, fileInfo.Name(), sha1_hash_bytes, uploadTimestamp)
+	uploadTimestamp := fileInfo.ModTime().Unix()
+	if opts.SetDateFromFilename {
+		if t, ok := parseTimestampFromFilename(filePath); ok {
+			uploadTimestamp = t.Unix()
+		}
+	}
+	mediaKey, err := api.CommitUpload(commitToken, fileName, sha1Hash, uploadTimestamp)
 	if err != nil {
-		return "", fmt.Errorf("error committing file: %w", err)
+		return "", false, fmt.Errorf("error committing file: %w", err)
 	}
 
 	if len(mediaKey) == 0 {
-		return "", fmt.Errorf("media key not received")
+		return "", false, fmt.Errorf("media key not received")
 	}
 
 	if opts.DeleteFromHost {
-		if err := os.Remove(filePath); err != nil {
-			return mediaKey, fmt.Errorf("uploaded successfully but failed to delete file: %w", err)
+		if err := removeConfirmedFiles(ctx, confirmedLocalFile{filePath, sha1Hash}); err != nil {
+			return mediaKey, false, fmt.Errorf("uploaded successfully but failed to delete file: %w", err)
 		}
 	}
 
-	return mediaKey, nil
+	return mediaKey, false, nil
 }
 
 func (m *UploadManager) runWorker(workerID int, workChan <-chan UploadWorkItem, results chan<- FileUploadResult, opts UploadOptions) {
@@ -766,58 +787,7 @@ func (m *UploadManager) runWorker(workerID int, workChan <-chan UploadWorkItem, 
 				}
 			}()
 
-			path := uploadWorkPrimaryPath(item)
-			paths := item.Paths()
-			isLivePhoto := item.Kind == UploadWorkLivePhoto
-			mediaKey, skipped, err := uploadWorkItem(ctx, api, item, opts, workerID, m.reporter)
-			if err != nil && mediaKey != "" {
-				results <- FileUploadResult{IsLivePhoto: isLivePhoto, Path: path, Paths: paths, MediaKey: mediaKey}
-				m.reporter.Warning(PreflightWarning{
-					Paths:   paths,
-					Code:    "local-cleanup-failed",
-					Message: err.Error(),
-				})
-				m.reporter.ThreadStatus(ThreadStatus{
-					WorkerID: workerID,
-					Status:   "completed",
-					FilePath: path,
-					FileName: filepath.Base(path),
-					Message:  fmt.Sprintf("Uploaded, but local cleanup failed: %v", err),
-				})
-			} else if err != nil {
-				results <- FileUploadResult{IsError: true, IsLivePhoto: isLivePhoto, Error: err, ErrorMessage: err.Error(), Path: path, Paths: paths}
-				m.reporter.ThreadStatus(ThreadStatus{
-					WorkerID: workerID,
-					Status:   "error",
-					FilePath: path,
-					FileName: filepath.Base(path),
-					Message:  fmt.Sprintf("Error: %v", err),
-				})
-			} else if skipped {
-				skipCode := "remote-duplicate"
-				skipReason := "Skipped because this file already exists remotely"
-				if isLivePhoto {
-					skipCode = "remote-live-photo-component-exists"
-					skipReason = "Skipped because a Live Photo component already exists remotely"
-				}
-				results <- FileUploadResult{
-					IsLivePhoto: isLivePhoto,
-					Skipped:     true,
-					SkipCode:    skipCode,
-					SkipReason:  skipReason,
-					Path:        path,
-					Paths:       paths,
-				}
-			} else {
-				results <- FileUploadResult{IsLivePhoto: isLivePhoto, Path: path, Paths: paths, MediaKey: mediaKey}
-				m.reporter.ThreadStatus(ThreadStatus{
-					WorkerID: workerID,
-					Status:   "completed",
-					FilePath: path,
-					FileName: filepath.Base(path),
-					Message:  "Completed",
-				})
-			}
+			results <- m.processWorkItem(ctx, api, item, opts, workerID)
 			cancelUpload()
 
 			// Mark as idle after completing file
@@ -837,14 +807,41 @@ func (m *UploadManager) runWorker(workerID int, workChan <-chan UploadWorkItem, 
 	})
 }
 
+func (m *UploadManager) processWorkItem(ctx context.Context, api *Api, item UploadWorkItem, opts UploadOptions, workerID int) FileUploadResult {
+	key, skipped, err := uploadWorkItem(ctx, api, item, opts, workerID, m.reporter)
+	path := uploadWorkPrimaryPath(item)
+	result := FileUploadResult{Path: path, Paths: item.Paths(), MediaKey: key, Skipped: skipped, IsLivePhoto: item.Kind == UploadWorkLivePhoto}
+	status := ThreadStatus{WorkerID: workerID, FilePath: path, FileName: filepath.Base(path), Status: "completed", Message: "Completed"}
+	if err != nil {
+		if key == "" {
+			result.IsError, result.Error, result.ErrorMessage = true, err, err.Error()
+			status.Status, status.Message = "error", fmt.Sprintf("Error: %v", err)
+			m.reporter.ThreadStatus(status)
+			return result
+		}
+		// The library outcome is confirmed even when deleting the local copy fails.
+		m.reporter.Warning(PreflightWarning{Paths: result.Paths, Code: "local-cleanup-failed", Message: err.Error()})
+		status.Message = fmt.Sprintf("Uploaded, but local cleanup failed: %v", err)
+	}
+	if skipped {
+		result.SkipCode, result.SkipReason = "remote-duplicate", remoteDuplicateReason
+		if result.IsLivePhoto {
+			result.SkipCode = "remote-live-photo-component-exists"
+			result.SkipReason = "A component of this Live Photo already exists in Google Photos."
+		}
+		return result
+	}
+	m.reporter.ThreadStatus(status)
+	return result
+}
+
 func uploadWorkItem(ctx context.Context, api *Api, item UploadWorkItem, opts UploadOptions, workerID int, reporter UploadReporter) (string, bool, error) {
 	switch item.Kind {
 	case UploadWorkSingle:
 		if item.Single == nil || item.LivePhoto != nil {
 			return "", false, fmt.Errorf("invalid single-media work item")
 		}
-		mediaKey, err := uploadSingleFile(ctx, api, item.Single.Path, opts, workerID, reporter)
-		return mediaKey, false, err
+		return uploadSingleFile(ctx, api, item.Single.Path, opts, workerID, reporter)
 	case UploadWorkLivePhoto:
 		if item.LivePhoto == nil || item.Single != nil {
 			return "", false, fmt.Errorf("invalid Live Photo work item")

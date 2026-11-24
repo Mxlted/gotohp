@@ -12,7 +12,8 @@ import { useColorMode } from '@vueuse/core'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Album, ArrowRight, Files, FolderOpen, Folders, Images, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
 import { ConfigManager } from '../bindings/app/core'
-import { Dialogs, Events } from '@wailsio/runtime'
+import type { UploadDestination } from '../bindings/app/core/models'
+import { Clipboard, Dialogs, Events } from '@wailsio/runtime'
 import Button from "./components/ui/button/Button.vue"
 import GoogleAccountSelect from './components/GoogleAccountSelect.vue'
 import GoogleAuthSetup from "./components/GoogleAuthSetup.vue"
@@ -24,6 +25,7 @@ import UploadResults from './components/UploadResults.vue'
 import brandMark from './assets/gotohp.svg'
 import tetons from './assets/tetons.webp'
 import { uploadManager } from './utils/UploadManager'
+import { incompleteLivePhotoPaths } from './utils/uploadResults'
 import Toaster from './components/ui/sonner/Sonner.vue'
 
 import { toast } from "vue-sonner"
@@ -46,6 +48,8 @@ watch(() => uploadState.isUploading, running => {
 const isDraggingFiles = ref(false)
 
 const pendingFiles = ref<string[]>([])
+const allowIncompletePaths = ref(new Set<string>())
+let lastDestination: UploadDestination | undefined
 const destination = ref('regular')
 const destinations = [
   { value: 'regular', label: 'Photo library', icon: Images, dropHint: 'Add to your library.' },
@@ -264,28 +268,61 @@ async function choosePaths(folders: boolean) {
 
 function clearSelection() {
   pendingFiles.value = []
+  allowIncompletePaths.value.clear()
 }
 
 function removePath(path: string) {
   pendingFiles.value = pendingFiles.value.filter(item => item !== path)
+  allowIncompletePaths.value.delete(path)
+}
+
+function stageIncompleteFiles(paths: string[], previous?: UploadDestination) {
+  if (!paths.length || pendingFiles.value.length || isStarting.value || uploadState.isUploading) return
+  stageFiles(paths)
+  allowIncompletePaths.value = new Set(paths)
+  if (previous) {
+    selectedOption.value = options.value.includes(previous.account) ? previous.account : ''
+    destination.value = previous.autoAlbum ? 'auto-album' : previous.albumName ? 'album' : 'regular'
+    // A name creates a fresh album. Prefer the album key returned by the original transfer.
+    albumNameOrKey.value = previous.albumName ? uploadState.albumStatus?.AlbumKeys?.at(-1) || previous.albumName : ''
+  }
+}
+
+async function pasteSkippedFiles() {
+  if (pendingFiles.value.length || isStarting.value || isChoosing.value || uploadState.isUploading) return
+  isChoosing.value = true
+  try {
+    const paths = incompleteLivePhotoPaths(JSON.parse(await Clipboard.Text()))
+    if (paths.length) stageIncompleteFiles(paths)
+    else toast.info('This report has no skipped incomplete Live Photos.')
+  } catch (error) {
+    toast.error('Could not read an upload report', {
+      description: error instanceof SyntaxError ? 'Use Copy as JSON in the upload results, then try again.' : String(error),
+    })
+  } finally {
+    isChoosing.value = false
+  }
 }
 
 async function confirmUpload() {
   if (!canUpload.value) return
   isStarting.value = true
+  const reviewedDestination = {
+    account: selectedOption.value,
+    albumName: destination.value === 'album' ? albumNameOrKey.value.trim() : '',
+    autoAlbum: destination.value === 'auto-album',
+  }
   try {
     const cancelled = await Events.Emit('startUpload', {
       files: [...pendingFiles.value],
-      destination: {
-        account: selectedOption.value,
-        albumName: destination.value === 'album' ? albumNameOrKey.value.trim() : '',
-        autoAlbum: destination.value === 'auto-album',
-      },
+      destination: reviewedDestination,
+      allowIncompletePaths: allowIncompletePaths.value.size ? [...allowIncompletePaths.value] : undefined,
     })
     if (cancelled) {
       toast.error('Upload request was cancelled')
       return
     }
+    lastDestination = reviewedDestination
     clearSelection()
     destination.value = 'regular'
     albumNameOrKey.value = ''
@@ -452,7 +489,11 @@ onUnmounted(() => {
       </div>
       <Upload v-if="uploadState.isUploading" />
       <template v-else>
-        <UploadResults v-if="hasResults && !pendingFiles.length" />
+        <UploadResults
+          v-if="hasResults && !pendingFiles.length"
+          :disabled="isStarting || isChoosing"
+          @retry="stageIncompleteFiles($event, lastDestination)"
+        />
         <div class="workspace-grid">
           <div class="source-column">
             <section
@@ -467,7 +508,6 @@ onUnmounted(() => {
                 <p>Drop files or folders here.</p>
                 <div class="picker-actions">
                   <Button
-                    class="source-primary"
                     :disabled="isStarting || isChoosing"
                     @click="choosePaths(false)"
                   >
@@ -495,9 +535,11 @@ onUnmounted(() => {
             </section>
             <UploadSelection
               :paths="pendingFiles"
+              :incomplete-count="allowIncompletePaths.size"
               :disabled="isStarting || isChoosing"
               @remove="removePath"
               @clear="clearSelection"
+              @paste-skipped="pasteSkippedFiles"
             />
           </div>
 

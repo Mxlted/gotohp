@@ -344,6 +344,7 @@ export class PreflightWarning {
 export class StartUploadEvent {
     "files": string[];
     "destination"?: UploadDestination | null;
+    "allowIncompletePaths"?: string[];
 
     /** Creates a new StartUploadEvent instance. */
     constructor($$source: Partial<StartUploadEvent> = {}) {
@@ -360,12 +361,16 @@ export class StartUploadEvent {
     static createFrom($$source: any = {}): StartUploadEvent {
         const $$createField0_0 = $$createType2;
         const $$createField1_0 = $$createType4;
+        const $$createField2_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("files" in $$parsedSource) {
             $$parsedSource["files"] = $$createField0_0($$parsedSource["files"]);
         }
         if ("destination" in $$parsedSource) {
             $$parsedSource["destination"] = $$createField1_0($$parsedSource["destination"]);
+        }
+        if ("allowIncompletePaths" in $$parsedSource) {
+            $$parsedSource["allowIncompletePaths"] = $$createField2_0($$parsedSource["allowIncompletePaths"]);
         }
         return new StartUploadEvent($$parsedSource as Partial<StartUploadEvent>);
     }

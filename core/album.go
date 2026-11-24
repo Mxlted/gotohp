@@ -80,19 +80,29 @@ func (m *AlbumManager) AddToAlbum(mediaKeys []string, albumNameOrKey string) ([]
 		return nil, fmt.Errorf("album name or key cannot be empty")
 	}
 
-	// Check if we're adding to an existing album
-	if IsAlbumKey(albumNameOrKey) {
-		return m.addToExistingAlbum(mediaKeys, albumNameOrKey)
+	// Several source paths can resolve to the same library item in this album.
+	seen := make(map[string]bool, len(mediaKeys))
+	uniqueKeys := make([]string, 0, len(mediaKeys))
+	for _, key := range mediaKeys {
+		if !seen[key] {
+			seen[key] = true
+			uniqueKeys = append(uniqueKeys, key)
+		}
 	}
 
-	return m.createNewAlbum(mediaKeys, albumNameOrKey)
+	// Check if we're adding to an existing album
+	if IsAlbumKey(albumNameOrKey) {
+		return m.addToExistingAlbum(uniqueKeys, albumNameOrKey)
+	}
+
+	return m.createNewAlbum(uniqueKeys, albumNameOrKey)
 }
 
 // addToExistingAlbum adds media to an existing album using the album media key
 func (m *AlbumManager) addToExistingAlbum(mediaKeys []string, albumKey string) ([]string, error) {
 	totalItems := len(mediaKeys)
 	itemsAdded := 0
-	displayName := fmt.Sprintf("Album (%s...)", albumKey[:10])
+	displayName := fmt.Sprintf("Album (%.10s...)", albumKey)
 
 	// Process in API-sized batches (500 items per call)
 	for i := 0; i < len(mediaKeys); i += AlbumBatchSize {

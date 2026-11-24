@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { Clapperboard, Files, Image as ImageIcon, List, X } from '@lucide/vue'
+import { Clapperboard, ClipboardPaste, Files, Image as ImageIcon, List, X } from '@lucide/vue'
 import Button from './ui/button/Button.vue'
 
-const props = defineProps<{ paths: string[], disabled: boolean }>()
-const emit = defineEmits<{ remove: [path: string], clear: [] }>()
+const props = defineProps<{ paths: string[], incompleteCount: number, disabled: boolean }>()
+const emit = defineEmits<{ remove: [path: string], clear: [], 'paste-skipped': [] }>()
 
 const visibleCount = ref(40)
 const heading = ref<HTMLElement>()
@@ -62,6 +62,17 @@ async function removeSelection(path: string, index: number) {
       >
         Clear
       </Button>
+      <Button
+        v-else
+        class="ml-auto"
+        variant="ghost"
+        size="sm"
+        title="Queue incomplete Live Photos from a copied upload report"
+        :disabled="disabled"
+        @click="$emit('paste-skipped')"
+      >
+        <ClipboardPaste aria-hidden="true" /> Paste skipped files
+      </Button>
     </header>
     <template v-if="paths.length">
       <ul
@@ -118,7 +129,17 @@ async function removeSelection(path: string, index: number) {
           </Button>
         </li>
       </ul>
-      <p class="queue-note">
+      <p
+        v-if="incompleteCount"
+        class="queue-note"
+      >
+        Retrying {{ incompleteCount }} incomplete {{ incompleteCount === 1 ? 'file' : 'files' }}.
+        Add matching companions to keep motion. Each retried file still missing its companion will upload on its own.
+      </p>
+      <p
+        v-else
+        class="queue-note"
+      >
         Folders are scanned when you start the upload.
       </p>
     </template>

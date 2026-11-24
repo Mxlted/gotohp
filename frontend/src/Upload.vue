@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
-import { Album, AlertTriangle, Clock, Gauge, Square, HardDrive } from '@lucide/vue'
+import { Album, Clock, Gauge, Square, HardDrive } from '@lucide/vue'
 import { Button } from './components/ui/button'
 import { Progress } from './components/ui/progress'
 import ThreadProgress from './components/ThreadProgress.vue'
+import UploadWarnings from './components/UploadWarnings.vue'
 import { uploadManager } from './utils/UploadManager'
 import { formatBytes } from './utils/formatBytes'
 
@@ -68,6 +69,7 @@ async function cancelUpload() {
           />
           <p class="batch-description">
             {{ state.uploadedFiles }} of {{ state.totalFiles }} items processed
+            <span v-if="state.alreadyInLibrary"> · {{ state.alreadyInLibrary }} already in Google Photos</span>
           </p>
         </template>
         <p
@@ -135,33 +137,10 @@ async function cancelUpload() {
           <span>{{ state.albumStatus.ItemsAdded }} of {{ state.albumStatus.TotalItems }} items</span>
         </div>
       </section>
-      <section
+      <UploadWarnings
         v-if="state.warnings.length"
-        class="panel"
-        aria-labelledby="warnings-heading"
-      >
-        <header class="panel-heading">
-          <AlertTriangle
-            aria-hidden="true"
-            class="size-4"
-          />
-          <h2
-            id="warnings-heading"
-            class="panel-title"
-          >
-            Warnings
-          </h2>
-        </header>
-        <ul class="result-details">
-          <li
-            v-for="(warning, index) in state.warnings"
-            :key="index"
-          >
-            {{ warning.Message }}
-            <small v-if="warning.Paths?.length">{{ warning.Paths.join(', ') }}</small>
-          </li>
-        </ul>
-      </section>
+        :warnings="state.warnings"
+      />
     </div>
     <aside
       class="panel"
@@ -201,12 +180,10 @@ async function cancelUpload() {
 </template>
 
 <style scoped>
-.batch-progress { border: 1px solid #2d4038; border-radius: 10px; padding: 24px; background: #283b32; color: #fffaf0; }
+.batch-progress { border: 1px solid var(--upload-border); border-radius: 10px; padding: 24px; background: var(--upload-surface); color: var(--upload-foreground); }
 .batch-percent { margin-block: 6px 14px; font: 56px/1.1 var(--display); }
 .batch-percent span { font-size: .65em; }
-.batch-progress :deep([data-slot=progress]) { background: #506457; }
-.batch-progress :deep([data-slot=progress-indicator]) { background: #e8ba92; }
-.batch-description, .scan-status { margin-top: 13px; color: #d1d8ce; font-size: 13px; }
+.batch-description, .scan-status { margin-top: 13px; color: var(--muted-foreground); font-size: 13px; }
 .scan-status { margin-block: 25px; font-size: 17px; }
 .quiet-note { padding: 20px; color: var(--muted-foreground); font-size: 13px; }
 .worker-list { max-height: 42vh; overflow-y: auto; }

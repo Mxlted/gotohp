@@ -20,7 +20,8 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-var title = "gotohp v" + getAppVersion() + " (Mxlted)"
+// Local preview builds can label their window with -X main.buildLabel.
+var buildLabel = "Mxlted"
 
 func main() {
 	// Run the CLI when the arguments name one of its commands; otherwise start the GUI.
@@ -54,7 +55,7 @@ func runGUI() {
 	})
 
 	window := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:          title,
+		Title:          fmt.Sprintf("gotohp v%s (%s)", getAppVersion(), buildLabel),
 		Width:          1080,
 		Height:         760,
 		MinWidth:       380,

@@ -95,7 +95,8 @@ const account = defineModel<string>({ required: true })
   </DropdownMenuRoot>
 </template>
 
-<style scoped>
+<!-- Reka portals attach these classes to elements outside the component's scoped DOM. -->
+<style>
 .account-menu {
   z-index: 50;
   width: max-content;
@@ -106,8 +107,9 @@ const account = defineModel<string>({ required: true })
   padding: 4px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--card);
-  box-shadow: 0 4px 14px #171b1718;
+  background-color: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 4px 14px #20212426;
 }
 .account-item { display: flex; align-items: center; gap: 8px; min-height: 33px; border-radius: 4px; padding: 5px 9px; outline: none; font-size: 13px; cursor: pointer; }
 .account-item[data-highlighted], .account-item[data-state=open] { background: var(--accent); }

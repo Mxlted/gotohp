@@ -31,15 +31,6 @@ func uploadLivePhotoWithCallback(
 	workerID int,
 	reporter UploadReporter,
 ) (mediaKey string, skipped bool, err error) {
-	photoInfo, err := os.Stat(pair.PhotoPath)
-	if err != nil {
-		return "", false, fmt.Errorf("stat Live Photo still: %w", err)
-	}
-	videoInfo, err := os.Stat(pair.VideoPath)
-	if err != nil {
-		return "", false, fmt.Errorf("stat Live Photo video: %w", err)
-	}
-	totalBytes := photoInfo.Size() + videoInfo.Size()
 	displayName := filepath.Base(pair.PhotoPath) + " + " + filepath.Base(pair.VideoPath)
 	reporter.ThreadStatus(ThreadStatus{
 		WorkerID: workerID,
@@ -49,14 +40,15 @@ func uploadLivePhotoWithCallback(
 		Message:  "Hashing Live Photo pair...",
 	})
 
-	photoSHA1, err := CalculateSHA1(ctx, pair.PhotoPath)
+	photoSHA1, photoInfo, err := fileSHA1(ctx, pair.PhotoPath)
 	if err != nil {
 		return "", false, fmt.Errorf("hash Live Photo still: %w", err)
 	}
-	videoSHA1, err := CalculateSHA1(ctx, pair.VideoPath)
+	videoSHA1, videoInfo, err := fileSHA1(ctx, pair.VideoPath)
 	if err != nil {
 		return "", false, fmt.Errorf("hash Live Photo video: %w", err)
 	}
+	totalBytes := photoInfo.Size() + videoInfo.Size()
 
 	reporter.ThreadStatus(ThreadStatus{
 		WorkerID: workerID,
@@ -157,7 +149,7 @@ func uploadLivePhotoWithCallback(
 	}
 
 	if options.DeleteFromHost {
-		if err := removeLivePhotoFiles(pair); err != nil {
+		if err := removeLivePhotoFiles(ctx, pair, photoSHA1, videoSHA1); err != nil {
 			return mediaKey, false, err
 		}
 	}
@@ -232,7 +224,7 @@ func reconcileExistingLivePhoto(
 		return "", fmt.Errorf("updated Live Photo media key not received")
 	}
 	if options.DeleteFromHost {
-		if err := removeLivePhotoFiles(pair); err != nil {
+		if err := removeLivePhotoFiles(ctx, pair, photoSHA1, videoSHA1); err != nil {
 			return mediaKey, err
 		}
 	}
@@ -275,11 +267,9 @@ func uploadLivePhotoComponent(
 	return api.UploadFileWithProgress(ctx, componentPath, uploadSession, progress)
 }
 
-func removeLivePhotoFiles(pair LivePhotoPair) error {
-	for _, path := range []string{pair.VideoPath, pair.PhotoPath} {
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("Live Photo uploaded but failed to delete %s: %w", filepath.Base(path), err)
-		}
+func removeLivePhotoFiles(ctx context.Context, pair LivePhotoPair, photoSHA1, videoSHA1 []byte) error {
+	if err := removeConfirmedFiles(ctx, confirmedLocalFile{pair.VideoPath, videoSHA1}, confirmedLocalFile{pair.PhotoPath, photoSHA1}); err != nil {
+		return fmt.Errorf("Live Photo uploaded but local cleanup failed: %w", err)
 	}
 	return nil
 }

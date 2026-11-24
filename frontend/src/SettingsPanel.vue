@@ -231,7 +231,7 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
             </button>
           </TooltipTrigger>
           <TooltipContent class="max-w-72">
-            Applies to single files. Live Photo pairs always check both components for duplicates.
+            Bypass the Google Photos duplicate check for individual files. With Force Upload off, exact matches are skipped. Live Photo pairs always check both components.
           </TooltipContent>
         </Tooltip>
       </div>

@@ -1,6 +1,7 @@
 import { Clipboard, Events } from "@wailsio/runtime";
 import { reactive } from "vue";
 import {
+  isSkippedUploadWarning,
   recordUploadResult,
   type UploadResults,
 } from "./uploadResults";
@@ -52,14 +53,11 @@ export interface AlbumError {
   Error: string;
 }
 
-function isSkippedUploadWarning(code: string): boolean {
-  return code === "incomplete-live-photo-skipped" || code === "ambiguous-filename-stem";
-}
-
 export interface UploadState {
   isUploading: boolean;
   totalFiles: number;
   uploadedFiles: number;
+  alreadyInLibrary: number;
   threads: Map<number, ThreadStatus>;
   results: UploadResults;
   warnings: PreflightWarning[];
@@ -83,6 +81,7 @@ class UploadManager {
     isUploading: false,
     totalFiles: 0,
     uploadedFiles: 0,
+    alreadyInLibrary: 0,
     threads: new Map<number, ThreadStatus>(),
     results: {
       success: [],
@@ -194,7 +193,10 @@ class UploadManager {
       const { Path, Paths } = event.data;
 
       this.state.uploadedFiles += recordUploadResult(this.state.results, event.data);
-      if (!event.data.IsError) {
+      if (!event.data.IsError && event.data.Skipped && event.data.SkipCode === 'remote-duplicate') {
+        this.state.alreadyInLibrary++;
+      }
+      if (!event.data.IsError && !event.data.Skipped) {
         const completedFileBytes = this.fileBytes.get(Path);
         if (completedFileBytes && completedFileBytes > 0) {
           this.completedBytes += completedFileBytes;
@@ -204,17 +206,6 @@ class UploadManager {
         this.fileBytes.delete(completedPath);
       }
       this.updateBytesAndSpeed();
-
-      // Skipped-only batches can begin and end within one backend event burst.
-      // Finishing locally prevents a missed terminal event from leaving the timer running.
-      if (
-        this.state.totalFiles > 0
-        && this.state.uploadedFiles >= this.state.totalFiles
-        && this.state.results.success.length === 0
-        && this.state.results.fail.length === 0
-      ) {
-        this.state.isUploading = false;
-      }
     });
 
     // Handle upload stop
@@ -282,6 +273,7 @@ class UploadManager {
   }
 
   public resetUploadResults() {
+    this.state.alreadyInLibrary = 0;
     this.state.results.success = [];
     this.state.results.fail = [];
     this.state.results.skipped = [];

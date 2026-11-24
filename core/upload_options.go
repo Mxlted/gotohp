@@ -20,6 +20,9 @@ type UploadOptions struct {
 	// IgnoreAppleMetadata matches Live Photo pairs by filename stem instead of
 	// Apple content identifiers. It is never persisted.
 	IgnoreAppleMetadata bool
+	// AllowIncompletePaths lets explicitly retried files upload on their own
+	// when no companion is found in this run.
+	AllowIncompletePaths map[string]bool
 
 	// AlbumName is a name or album key to add uploads to. Ignored when
 	// AlbumAutoMode is set, which creates one album per source directory.

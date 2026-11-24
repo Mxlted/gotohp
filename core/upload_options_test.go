@@ -1,10 +1,85 @@
 package core
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 )
+
+func TestRetryOnlyAllowsSelectedIncompleteFiles(t *testing.T) {
+	dir := t.TempDir()
+	retry := filepath.Join(dir, "retry.heic")
+	other := filepath.Join(dir, "other.heic")
+	missing := filepath.Join(dir, "missing.mov")
+	replaced := filepath.Join(dir, "replaced.heic")
+	if err := os.Mkdir(replaced, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{retry, other, filepath.Join(replaced, "unrelated.jpg")} {
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := UploadOptions{PairLivePhotos: true, SkipIncompleteLivePhotos: true, IgnoreAppleMetadata: true}
+	request := StartUploadEvent{
+		Files:                []string{retry, other, missing, replaced},
+		AllowIncompletePaths: []string{retry, missing, replaced},
+	}
+	run := request.UploadOptions(session)
+	items, warnings, err := PlanUpload(request.Files, run, nil)
+	if err != nil || len(items) != 1 || items[0].Kind != UploadWorkSingle || items[0].Single.Path != retry {
+		t.Fatalf("retry plan = %+v, %v", items, err)
+	}
+	skipped := make(map[string]string)
+	for _, warning := range warnings {
+		if !IsSkippedPreflightWarning(warning.Code) || len(warning.Paths) != 1 {
+			t.Fatalf("unexpected retry warning: %+v", warning)
+		}
+		skipped[warning.Paths[0]] = warning.Code
+	}
+	want := map[string]string{other: "incomplete-live-photo-skipped", missing: "incomplete-live-photo-unavailable", replaced: "incomplete-live-photo-unavailable"}
+	if !reflect.DeepEqual(skipped, want) {
+		t.Fatalf("skips = %v, want %v", skipped, want)
+	}
+	items, warnings, err = PlanUpload([]string{retry}, session, nil)
+	if err != nil || len(items) != 0 || len(warnings) != 1 || warnings[0].Code != "incomplete-live-photo-skipped" || run.ForceUpload {
+		t.Fatalf("normal run after retry = %+v, %+v, %v; retry force upload = %t", items, warnings, err, run.ForceUpload)
+	}
+}
+
+type retryMetadata map[string]string
+
+func (r retryMetadata) PhotoContentIdentifier(path string) (string, error) {
+	return r[path], nil
+}
+
+func (r retryMetadata) VideoLivePhotoMetadata(path string) (LivePhotoMetadata, error) {
+	return LivePhotoMetadata{ContentIdentifier: r[path], HasStillImageTime: true}, nil
+}
+
+func TestRetriedLivePhotoStillPairsWithAddedCompanion(t *testing.T) {
+	paths := []string{"still.heic", "renamed.mov", "orphan.mov", "copy.heic", "edit.jpg", "copy.mov"}
+	metadata := retryMetadata{
+		"still.heic": "matched", "renamed.mov": "matched", "orphan.mov": "orphan",
+		"copy.heic": "ambiguous", "edit.jpg": "ambiguous", "copy.mov": "ambiguous",
+	}
+	items, warnings := ClassifyUploadWork(paths, LivePhotoClassificationOptions{
+		Enabled: true, SkipIncomplete: true, AllowIncompletePaths: map[string]bool{"still.heic": true, "orphan.mov": true},
+	}, metadata)
+	if len(warnings) != 1 || warnings[0].Code != "ambiguous-identifier" || IsSkippedPreflightWarning(warnings[0].Code) {
+		t.Fatalf("warnings = %+v", warnings)
+	}
+	if len(items) != 5 || items[0].Kind != UploadWorkLivePhoto || !reflect.DeepEqual(items[0].Paths(), paths[:2]) {
+		t.Fatalf("expected the recovered pair first, got %+v", items)
+	}
+	for index, path := range paths[2:] {
+		item := items[index+1]
+		if item.Kind != UploadWorkSingle || item.Single.Path != path {
+			t.Fatalf("expected standalone %q, got %+v", path, item)
+		}
+	}
+}
 
 func TestReviewedDestinationAppliesOnlyToOneBatch(t *testing.T) {
 	session := UploadOptions{
@@ -22,7 +97,7 @@ func TestReviewedDestinationAppliesOnlyToOneBatch(t *testing.T) {
 	if !got.AlbumAutoMode || got.AlbumName != "" || got.Api.Account != request.Destination.Account {
 		t.Fatalf("folder album destination: %+v", got)
 	}
-	if legacy := (StartUploadEvent{}).UploadOptions(session); legacy != session || legacy.AlbumName != "Previous" {
+	if legacy := (StartUploadEvent{}).UploadOptions(session); !reflect.DeepEqual(legacy, session) || legacy.AlbumName != "Previous" {
 		t.Fatalf("legacy session destination changed: %+v", legacy)
 	}
 }

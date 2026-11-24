@@ -38,10 +38,11 @@ type PreflightWarning struct {
 }
 
 type LivePhotoClassificationOptions struct {
-	Enabled             bool
-	SkipIncomplete      bool
-	IgnoreAppleMetadata bool
-	Cancelled           func() bool
+	Enabled              bool
+	SkipIncomplete       bool
+	AllowIncompletePaths map[string]bool
+	IgnoreAppleMetadata  bool
+	Cancelled            func() bool
 }
 
 type LivePhotoMetadataReader interface {
@@ -166,7 +167,7 @@ func ClassifyUploadWork(paths []string, options LivePhotoClassificationOptions, 
 		if len(candidates.photos) > 1 || len(candidates.videos) > 1 {
 			ambiguousPaths := candidatePaths(candidates)
 			code := "ambiguous-identifier"
-			message := "multiple photo or video candidates share one Live Photo identifier"
+			message := "Multiple files share one Live Photo identifier. Each is queued separately. To keep motion, select one original still and its matching MOV."
 			if options.IgnoreAppleMetadata {
 				code = "ambiguous-filename-stem"
 				message = "multiple photo or video candidates share one filename stem"
@@ -188,6 +189,10 @@ func ClassifyUploadWork(paths []string, options LivePhotoClassificationOptions, 
 		}
 		if options.SkipIncomplete {
 			orphanPaths := candidatePaths(candidates)
+			// Pairs and ambiguous groups were handled above, so exactly one path remains.
+			if options.AllowIncompletePaths[orphanPaths[0]] {
+				continue
+			}
 			for _, photo := range candidates.photos {
 				consumed[photo.index] = true
 			}
@@ -197,7 +202,7 @@ func ClassifyUploadWork(paths []string, options LivePhotoClassificationOptions, 
 			warnings = append(warnings, PreflightWarning{
 				Paths:   orphanPaths,
 				Code:    "incomplete-live-photo-skipped",
-				Message: "Skipped an incomplete Live Photo because its matching file is not in this queue. You can disable this check in Settings.",
+				Message: "Skipped an incomplete Live Photo. Add its matching still or MOV to the queue, or retry the available file on its own.",
 			})
 		}
 	}

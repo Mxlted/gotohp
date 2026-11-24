@@ -26,7 +26,12 @@ const percent = computed(() => props.thread.Status === 'uploading' && props.thre
       >{{ thread.FileName || thread.Message }}</span>
       <span
         class="worker-status"
-        :class="{ 'text-destructive': thread.Status === 'error' }"
+        :class="{
+          'text-primary': thread.Status === 'uploading',
+          'text-success': thread.Status === 'completed',
+          'text-warning': thread.Status === 'skipped',
+          'text-destructive': thread.Status === 'error',
+        }"
       >{{ status }}</span>
     </div>
     <template v-if="percent !== null">
