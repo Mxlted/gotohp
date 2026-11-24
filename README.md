@@ -4,9 +4,13 @@ An unofficial Google Photos desktop and command-line client. Mxlted maintains th
 
 ## Review an upload
 
-Drop files and folders onto the window, or use **Choose files** and **Choose folders**. Review the selected paths, remove any you want to leave out, and choose the photo library, a named album, or albums based on folder names. You can open **Settings** while reviewing. **Start upload** scans the selected folders using those settings.
+Drop files and folders onto the window, or use **Choose files** and **Choose folders**. The upload queue shows each selection and its location. In **Destination**, choose the Google account and where to save the batch. You can send it to the photo library, a named album, or albums based on folder names. **Start upload** scans folders using your current **Settings**.
 
 ![Desktop review of three selected paths](readme_assets/upload-review.png)
+
+During a transfer, the dashboard shows file activity, speed, and progress. When the batch ends, expand **Show details** to read any failures, skips, or warnings. **Copy as JSON** copies the full report.
+
+The print in the upload area is Ansel Adams’s *The Tetons – Snake River* (1942). [National Archives photograph](https://www.archives.gov/research/still-pictures/highlights/the-tetons-snake-river)
 
 ## Features
 

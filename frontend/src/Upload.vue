@@ -1,203 +1,221 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import Button from "./components/ui/button/Button.vue"
-import { Progress } from "./components/ui/progress"
-import { ScrollArea } from "./components/ui/scroll-area"
-import ThreadProgress from "./components/ThreadProgress.vue"
+import { toast } from 'vue-sonner'
+import { Album, AlertTriangle, Clock, Gauge, Square, HardDrive } from '@lucide/vue'
+import { Button } from './components/ui/button'
+import { Progress } from './components/ui/progress'
+import ThreadProgress from './components/ThreadProgress.vue'
 import { uploadManager } from './utils/UploadManager'
-import { X, Clock, Zap, FolderPlus, AlertTriangle } from '@lucide/vue'
+import { formatBytes } from './utils/formatBytes'
 
 const { state } = uploadManager
+const isCancelling = ref(false)
+const now = ref(Date.now())
+let timer: ReturnType<typeof setInterval>
+onMounted(() => { timer = setInterval(() => { now.value = Date.now() }, 1000) })
+onUnmounted(() => clearInterval(timer))
 
-// Elapsed time ticker
-const elapsedSeconds = ref(0)
-let elapsedInterval: ReturnType<typeof setInterval> | null = null
+const threads = computed(() => [...state.threads.values()]
+  .filter(thread => thread.Status !== 'idle')
+  .sort((a, b) => a.WorkerID - b.WorkerID))
+const percent = computed(() => state.totalFiles ? Math.round(state.uploadedFiles / state.totalFiles * 100) : 0)
+const elapsed = computed(() => {
+  const seconds = Math.max(0, Math.floor((now.value - state.startTime) / 1000))
+  const minutes = Math.floor(seconds / 60)
+  if (minutes >= 60) return Math.floor(minutes / 60) + 'h ' + minutes % 60 + 'm'
+  if (minutes) return minutes + 'm ' + seconds % 60 + 's'
+  return seconds + 's'
+})
+const albumPercent = computed(() => state.albumStatus?.TotalItems
+  ? Math.round(state.albumStatus.ItemsAdded / state.albumStatus.TotalItems * 100) : 0)
 
-onMounted(() => {
-  elapsedInterval = setInterval(() => {
-    if (state.startTime > 0) {
-      elapsedSeconds.value = Math.floor((Date.now() - state.startTime) / 1000)
+async function cancelUpload() {
+  if (isCancelling.value) return
+  isCancelling.value = true
+  try {
+    const declined = await uploadManager.cancelUpload()
+    if (declined) {
+      toast.error('Cancellation request was declined')
+      isCancelling.value = false
     }
-  }, 1000)
-})
-
-onUnmounted(() => {
-  if (elapsedInterval) {
-    clearInterval(elapsedInterval)
+  } catch (error) {
+    toast.error('Could not cancel upload', { description: String(error) })
+    isCancelling.value = false
   }
-})
-
-const threadsList = computed(() => {
-  return Array.from(state.threads.values())
-    .filter(thread => thread.Status !== 'idle')
-    .sort((a, b) => a.WorkerID - b.WorkerID)
-})
-
-const progressPercent = computed(() => {
-  if (state.totalFiles === 0) return 0
-  return Math.round((state.uploadedFiles / state.totalFiles) * 100)
-})
-
-// Format bytes to human readable
-function formatBytes(bytes: number, decimals = 1): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i]
-}
-
-// Format speed
-const speedDisplay = computed(() => {
-  if (state.uploadSpeed <= 0) return '--'
-  return formatBytes(state.uploadSpeed) + '/s'
-})
-
-// Format elapsed time
-const elapsedDisplay = computed(() => {
-  const seconds = elapsedSeconds.value
-  if (seconds < 60) return `${seconds}s`
-  const mins = Math.floor(seconds / 60)
-  const secs = seconds % 60
-  if (mins < 60) return `${mins}m ${secs}s`
-  const hours = Math.floor(mins / 60)
-  const remainingMins = mins % 60
-  return `${hours}h ${remainingMins}m`
-})
-
-// Bytes progress display
-const bytesDisplay = computed(() => {
-  if (state.totalBytes === 0) return ''
-  return `${formatBytes(state.uploadedBytes)} / ${formatBytes(state.totalBytes)}`
-})
-
-// Album progress display
-const albumProgressPercent = computed(() => {
-  if (!state.albumStatus || state.albumStatus.TotalItems === 0) return 0
-  return Math.round((state.albumStatus.ItemsAdded / state.albumStatus.TotalItems) * 100)
-})
-
-function warningFiles(paths: string[]): string {
-  return paths.map(path => path.split(/[\\/]/).pop()).filter(Boolean).join(', ')
 }
 </script>
 
 <template>
-  <div class="flex flex-col h-full w-full px-4 pt-6 pb-4">
-    <!-- Header with file count -->
-    <div class="text-center mb-3">
-      <p class="text-2xl font-bold tabular-nums">
-        {{ state.uploadedFiles }}<span class="text-muted-foreground font-normal">/</span><span class="text-muted-foreground">{{ state.totalFiles }}</span>
-      </p>
-      <p class="text-xs text-muted-foreground">
-        items processed
-      </p>
-    </div>
-
-    <!-- Stats row -->
-    <div class="flex gap-3 justify-center mb-3 text-xs text-muted-foreground">
-      <div class="flex items-center gap-1.5">
-        <Zap :size="12" />
-        <span class="tabular-nums text-foreground">{{ speedDisplay }}</span>
-      </div>
-      <span class="text-border">|</span>
-      <div class="flex items-center gap-1.5">
-        <Clock :size="12" />
-        <span class="tabular-nums text-foreground">{{ elapsedDisplay }}</span>
-      </div>
-    </div>
-
-    <!-- Main progress bar -->
-    <div class="mb-4">
-      <Progress
-        :model-value="progressPercent"
-        class="h-2.5"
-      />
-      <div class="flex justify-between mt-1.5 text-xs text-muted-foreground">
-        <span v-if="bytesDisplay">{{ bytesDisplay }}</span>
-        <span v-else>&nbsp;</span>
-        <span class="font-medium">{{ progressPercent }}%</span>
-      </div>
-    </div>
-
-    <!-- Album creation progress -->
-    <div
-      v-if="state.albumStatus && (state.isCreatingAlbum || state.albumStatus.IsComplete)"
-      class="mb-3 p-3 rounded-lg border bg-muted/30"
-    >
-      <div class="flex items-center gap-2 mb-2">
-        <FolderPlus
-          :size="14"
-          class="text-primary"
-        />
-        <span class="text-sm font-medium">
-          {{ state.isCreatingAlbum ? 'Adding to album...' : 'Added to album' }}
-        </span>
-      </div>
-      <p class="text-xs text-muted-foreground mb-1.5">
-        {{ state.albumStatus.AlbumName }}
-      </p>
-      <Progress
-        :model-value="albumProgressPercent"
-        class="h-1.5"
-      />
-      <p class="text-xs text-muted-foreground mt-1">
-        {{ state.albumStatus.ItemsAdded }} / {{ state.albumStatus.TotalItems }} items
-      </p>
-    </div>
-
-    <div
-      v-if="state.warnings.length"
-      class="mb-3 space-y-1.5"
-    >
-      <div
-        v-for="(warning, index) in state.warnings"
-        :key="`${warning.Code}-${index}`"
-        class="flex gap-2 rounded-md bg-amber-500/10 px-2.5 py-2 text-amber-700 dark:text-amber-300"
+  <div class="workspace-grid">
+    <div class="source-column">
+      <section
+        class="batch-progress"
+        aria-labelledby="batch-title"
       >
-        <AlertTriangle
-          :size="14"
-          class="mt-0.5 shrink-0"
-        />
-        <div class="min-w-0">
-          <p class="text-xs leading-snug">
-            {{ warning.Message }}
+        <h2
+          id="batch-title"
+          class="panel-title"
+        >
+          Batch progress
+        </h2>
+        <template v-if="state.totalFiles">
+          <p class="batch-percent">
+            {{ percent }}<span>%</span>
           </p>
-          <p class="truncate text-[10px] opacity-75">
-            {{ warningFiles(warning.Paths) }}
+          <Progress
+            :model-value="percent"
+            aria-label="Batch progress"
+          />
+          <p class="batch-description">
+            {{ state.uploadedFiles }} of {{ state.totalFiles }} items processed
           </p>
-        </div>
-      </div>
-    </div>
-
-    <!-- Thread list - scrollable -->
-    <div class="flex-1 min-h-0 mb-3">
-      <p class="text-xs text-muted-foreground mb-1.5">
-        Active threads ({{ threadsList.length }})
-      </p>
-      <ScrollArea class="h-[calc(100%-20px)]">
-        <div class="space-y-1.5 pr-3">
+        </template>
+        <p
+          v-else
+          class="scan-status"
+          role="status"
+        >
+          Scanning your selection…
+        </p>
+      </section>
+      <section
+        class="panel"
+        aria-labelledby="activity-heading"
+      >
+        <header class="panel-heading">
+          <h2
+            id="activity-heading"
+            class="panel-title"
+          >
+            File activity
+          </h2>
+        </header>
+        <div
+          v-if="threads.length"
+          class="worker-list"
+          tabindex="0"
+          aria-label="Upload threads"
+        >
           <ThreadProgress
-            v-for="thread in threadsList"
+            v-for="thread in threads"
             :key="thread.WorkerID"
             :thread="thread"
           />
         </div>
-      </ScrollArea>
+        <p
+          v-else
+          class="quiet-note"
+        >
+          Waiting for file activity…
+        </p>
+      </section>
+      <section
+        v-if="state.albumStatus && (state.isCreatingAlbum || state.albumStatus.IsComplete)"
+        class="panel"
+        aria-labelledby="album-heading"
+      >
+        <header class="panel-heading">
+          <Album
+            aria-hidden="true"
+            class="size-4"
+          />
+          <h2
+            id="album-heading"
+            class="panel-title"
+          >
+            {{ state.isCreatingAlbum ? 'Adding to album' : 'Added to album' }}
+          </h2>
+        </header>
+        <div class="album-progress">
+          <p>{{ state.albumStatus.AlbumName }}</p>
+          <Progress
+            :model-value="albumPercent"
+            aria-label="Album progress"
+          />
+          <span>{{ state.albumStatus.ItemsAdded }} of {{ state.albumStatus.TotalItems }} items</span>
+        </div>
+      </section>
+      <section
+        v-if="state.warnings.length"
+        class="panel"
+        aria-labelledby="warnings-heading"
+      >
+        <header class="panel-heading">
+          <AlertTriangle
+            aria-hidden="true"
+            class="size-4"
+          />
+          <h2
+            id="warnings-heading"
+            class="panel-title"
+          >
+            Warnings
+          </h2>
+        </header>
+        <ul class="result-details">
+          <li
+            v-for="(warning, index) in state.warnings"
+            :key="index"
+          >
+            {{ warning.Message }}
+            <small v-if="warning.Paths?.length">{{ warning.Paths.join(', ') }}</small>
+          </li>
+        </ul>
+      </section>
     </div>
-
-    <!-- Cancel button - fixed at bottom -->
-    <Button
-      variant="destructive"
-      size="sm"
-      class="w-full"
-      @click="() => uploadManager.cancelUpload()"
+    <aside
+      class="panel"
+      aria-labelledby="transfer-heading"
     >
-      <X
-        :size="14"
-        class="mr-1"
-      />
-      Cancel Upload
-    </Button>
+      <header class="panel-heading">
+        <h2
+          id="transfer-heading"
+          class="panel-title"
+        >
+          Transfer details
+        </h2>
+      </header>
+      <dl class="transfer-stats">
+        <div><dt><Gauge aria-hidden="true" /> Speed</dt><dd>{{ state.uploadSpeed > 0 ? formatBytes(state.uploadSpeed) + '/s' : '—' }}</dd></div>
+        <div><dt><Clock aria-hidden="true" /> Elapsed</dt><dd>{{ elapsed }}</dd></div>
+        <div>
+          <dt><HardDrive aria-hidden="true" /> Transferred</dt><dd>
+            {{ formatBytes(state.uploadedBytes) }}<template v-if="state.totalBytes">
+              / {{ formatBytes(state.totalBytes) }}
+            </template>
+          </dd>
+        </div>
+      </dl>
+      <div class="destination-action">
+        <Button
+          variant="outline"
+          class="w-full"
+          :disabled="isCancelling"
+          @click="cancelUpload"
+        >
+          <Square aria-hidden="true" /> {{ isCancelling ? 'Cancelling…' : 'Cancel upload' }}
+        </Button>
+      </div>
+    </aside>
   </div>
 </template>
+
+<style scoped>
+.batch-progress { border: 1px solid #2d4038; border-radius: 10px; padding: 24px; background: #283b32; color: #fffaf0; }
+.batch-percent { margin-block: 6px 14px; font: 56px/1.1 var(--display); }
+.batch-percent span { font-size: .65em; }
+.batch-progress :deep([data-slot=progress]) { background: #506457; }
+.batch-progress :deep([data-slot=progress-indicator]) { background: #e8ba92; }
+.batch-description, .scan-status { margin-top: 13px; color: #d1d8ce; font-size: 13px; }
+.scan-status { margin-block: 25px; font-size: 17px; }
+.quiet-note { padding: 20px; color: var(--muted-foreground); font-size: 13px; }
+.worker-list { max-height: 42vh; overflow-y: auto; }
+.worker-list:focus-visible { outline-offset: -3px; }
+.transfer-stats { padding: 4px 20px; }
+.transfer-stats > div { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 12px; padding-block: 12px; }
+.transfer-stats > div + div { border-top: 1px solid var(--border); }
+.transfer-stats dt { display: inline-flex; gap: 7px; align-items: center; font-size: 13px; color: var(--muted-foreground); }
+.transfer-stats svg { width: 15px; height: 15px; }
+.transfer-stats dd, .album-progress span { font: 12px/1.5 var(--mono); }
+.album-progress { display: grid; gap: 9px; padding: 14px 20px; font-size: 14px; overflow-wrap: anywhere; }
+</style>

@@ -2,15 +2,15 @@
 import { ref, watch } from 'vue'
 import { Browser } from '@wailsio/runtime'
 import { toast } from 'vue-sonner'
-import { ChevronDown, ExternalLink } from '@lucide/vue'
+import { ChevronDown, ExternalLink, X } from '@lucide/vue'
 import { ConfigManager } from '../../bindings/app/core'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Sheet,
+  SheetClose,
   SheetContent,
-  SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
 
@@ -18,6 +18,7 @@ const embeddedSetupURL = 'https://accounts.google.com/EmbeddedSetup'
 
 const emit = defineEmits<{
   (event: 'account-added'): void
+  (event: 'return-focus'): void
 }>()
 
 const isOpen = defineModel<boolean>('open', { default: false })
@@ -92,15 +93,27 @@ async function addRawCredential() {
 <template>
   <Sheet v-model:open="isOpen">
     <SheetContent
-      side="bottom"
-      class="max-h-[92vh] overflow-y-auto"
+      side="right"
+      class="settings-sheet w-full overflow-y-auto sm:max-w-md"
+      :aria-describedby="undefined"
       style="--wails-draggable: none"
+      @close-auto-focus.prevent="emit('return-focus')"
     >
-      <div class="mx-auto flex w-full max-w-sm flex-col px-5 pt-1 pb-6">
-        <SheetHeader class="gap-0 px-0 pb-4 text-center">
-          <SheetTitle>Connect Google Photos</SheetTitle>
-        </SheetHeader>
-
+      <div class="sheet-heading">
+        <SheetTitle class="panel-title">
+          Connect Google Photos
+        </SheetTitle>
+        <SheetClose as-child>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Close account setup"
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </SheetClose>
+      </div>
+      <div class="flex flex-col p-5">
         <div class="flex flex-col gap-4">
           <!-- Step 1: open sign-in -->
           <div class="flex flex-col gap-2">

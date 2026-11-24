@@ -1,100 +1,136 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { X } from '@lucide/vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { Clapperboard, Files, Image as ImageIcon, List, X } from '@lucide/vue'
 import Button from './ui/button/Button.vue'
-import { Input } from './ui/input'
-import { Label } from './ui/label'
 
-defineProps<{ paths: string[], disabled: boolean }>()
-defineEmits<{ remove: [path: string] }>()
-const destination = defineModel<string>('destination', { required: true })
-const album = defineModel<string>('album', { required: true })
+const props = defineProps<{ paths: string[], disabled: boolean }>()
+const emit = defineEmits<{ remove: [path: string], clear: [] }>()
+
 const visibleCount = ref(40)
 const heading = ref<HTMLElement>()
-onMounted(() => heading.value?.focus())
+const list = ref<HTMLUListElement>()
+watch(() => props.paths.length > 0, (hasSelection) => {
+  if (!hasSelection) visibleCount.value = 40
+  heading.value?.focus()
+}, { flush: 'post' })
+
+const selections = computed(() => props.paths.slice(0, visibleCount.value).map(path => {
+  const trimmed = path.replace(/[\\/]+$/, '')
+  const separator = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  const name = separator < 0 ? path : trimmed.slice(separator + 1)
+  const parent = trimmed.slice(0, separator + 1)
+  let icon = Files
+  if (/\.(jpe?g|png|webp|heic|heif|gif|avif|tiff?|dng|raw)$/i.test(name)) icon = ImageIcon
+  if (/\.(mov|mp4|m4v|avi|mkv|webm|3gp)$/i.test(name)) icon = Clapperboard
+  return { path, name, parent, icon }
+}))
+
+async function removeSelection(path: string, index: number) {
+  emit('remove', path)
+  await nextTick()
+  const buttons = list.value?.querySelectorAll<HTMLButtonElement>('.remove-path')
+  if (buttons?.length) buttons[Math.min(index, buttons.length - 1)].focus()
+}
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
-    <div>
-      <h1
+  <section
+    class="panel queue-panel"
+    aria-labelledby="queue-title"
+  >
+    <header class="panel-heading">
+      <h2
+        id="queue-title"
         ref="heading"
+        class="panel-title"
         tabindex="-1"
-        class="text-xl font-semibold outline-none"
       >
-        Review upload
-      </h1>
-      <p class="mt-1 text-sm text-muted-foreground">
-        {{ paths.length }} {{ paths.length === 1 ? 'selection' : 'selections' }}.
-        Folders are scanned when you start.
+        Upload queue
+      </h2>
+      <span
+        v-if="paths.length"
+        class="count-label"
+        role="status"
+      >{{ paths.length }} selected</span>
+      <Button
+        v-if="paths.length"
+        class="ml-auto"
+        variant="ghost"
+        size="sm"
+        :disabled="disabled"
+        @click="$emit('clear')"
+      >
+        Clear
+      </Button>
+    </header>
+    <template v-if="paths.length">
+      <ul
+        ref="list"
+        class="queue-list"
+        aria-label="Selected files and folders"
+        tabindex="0"
+      >
+        <li
+          v-for="(item, index) in selections"
+          :key="item.path"
+          class="queue-row"
+        >
+          <span class="file-icon"><component
+            :is="item.icon"
+            aria-hidden="true"
+          /></span>
+          <div
+            class="file-label"
+            :title="item.path"
+          >
+            <span
+              class="file-name"
+              dir="auto"
+            >{{ item.name }}</span>
+            <span
+              v-if="item.parent"
+              class="file-parent"
+              dir="auto"
+            >{{ item.parent }}</span>
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            class="remove-path"
+            :disabled="disabled"
+            :aria-label="'Remove ' + item.path"
+            :title="'Remove ' + item.name"
+            @click="removeSelection(item.path, index)"
+          >
+            <X aria-hidden="true" />
+          </Button>
+        </li>
+        <li
+          v-if="paths.length > visibleCount"
+          class="px-4 py-2"
+        >
+          <Button
+            variant="outline"
+            size="sm"
+            @click="visibleCount += 40"
+          >
+            Show more selections
+          </Button>
+        </li>
+      </ul>
+      <p class="queue-note">
+        Folders are scanned when you start the upload.
       </p>
-    </div>
-    <ul
-      aria-label="Selected files and folders"
-      class="max-h-40 overflow-y-auto divide-y rounded-lg border"
-    >
-      <li
-        v-for="path in paths.slice(0, visibleCount)"
-        :key="path"
-        class="flex items-center gap-2 px-3 py-1"
-      >
-        <span
-          class="min-w-0 flex-1 break-all text-sm"
-          dir="auto"
-        >{{ path }}</span>
-        <Button
-          size="icon"
-          variant="ghost"
-          class="size-8 shrink-0"
-          :disabled="disabled"
-          :aria-label="`Remove ${path}`"
-          @click="$emit('remove', path)"
-        >
-          <X aria-hidden="true" />
-        </Button>
-      </li>
-      <li
-        v-if="paths.length > visibleCount"
-        class="px-3 py-1"
-      >
-        <Button
-          variant="link"
-          size="sm"
-          @click="visibleCount += 40"
-        >
-          Show more selections
-        </Button>
-      </li>
-    </ul>
-    <div class="flex flex-col gap-1.5">
-      <Label for="upload-destination">Destination</Label>
-      <select
-        id="upload-destination"
-        v-model="destination"
-        :disabled="disabled"
-        class="h-9 w-full rounded-md border bg-background px-2 text-sm [color-scheme:dark]"
-      >
-        <option value="regular">
-          Photo library
-        </option>
-        <option value="album">
-          Named album
-        </option>
-        <option value="auto-album">
-          Albums from folder names
-        </option>
-      </select>
-    </div>
+    </template>
     <div
-      v-if="destination === 'album'"
-      class="flex flex-col gap-1.5"
+      v-else
+      class="queue-empty"
     >
-      <Label for="album-input">Album name or key</Label>
-      <Input
-        id="album-input"
-        v-model="album"
-        :disabled="disabled"
-      />
+      <span class="file-icon"><List aria-hidden="true" /></span>
+      <div>
+        <p>No files selected</p>
+        <span>Folders are scanned when you start the upload.</span>
+      </div>
     </div>
-  </div>
+  </section>
 </template>

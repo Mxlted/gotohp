@@ -152,7 +152,8 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2.5 m-4">
+  <div class="settings-list">
+    <h3>Transfer</h3>
     <NumberField
       v-model="settings.uploadThreads"
       class="flex items-center justify-between"
@@ -160,13 +161,13 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
       <Label
         for="upload-threads"
         class="size-full"
-      >Upload Threads</Label>
+      >Upload threads</Label>
       <NumberFieldContent>
         <NumberFieldDecrement
           class="cursor-pointer"
           :disabled="settings.uploadThreads <= 1"
         />
-        <NumberFieldInput />
+        <NumberFieldInput id="upload-threads" />
         <NumberFieldIncrement class="cursor-pointer" />
       </NumberFieldContent>
     </NumberField>
@@ -190,6 +191,16 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
         v-model="settings.saver"
       />
     </div>
+    <div class="proxy-setting">
+      <Label for="proxy-url">Proxy URL</Label>
+      <Input
+        id="proxy-url"
+        v-model="settings.proxy"
+        type="text"
+        placeholder="Optional"
+      />
+    </div>
+    <h3>Files and folders</h3>
     <div class="flex items-center justify-between">
       <Label
         for="recursive"
@@ -347,6 +358,7 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
         v-model="settings.setDateFromFilename"
       />
     </div>
+    <h3>After upload</h3>
     <div class="flex items-center justify-between">
       <Label
         for="delete-host"
@@ -358,12 +370,13 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
         variant="destructive"
       />
     </div>
-    <div>
-      <Input
-        v-model="settings.proxy"
-        type="text"
-        placeholder="Proxy URL (optional)"
-      />
-    </div>
   </div>
 </template>
+
+<style scoped>
+.settings-list { display: grid; gap: 0; padding: 4px 20px 22px; }
+.settings-list h3 { margin-top: 17px; margin-bottom: 4px; color: var(--muted-foreground); font-size: 12px; font-weight: 650; }
+.settings-list > div { min-height: 39px; padding-block: 5px; border-bottom: 1px solid var(--border); }
+.settings-list > div:last-child { border: 0; }
+.settings-list .proxy-setting { display: grid; grid-template-columns: 1fr minmax(0, 55%); gap: 10px; align-items: center; }
+</style>

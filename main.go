@@ -54,20 +54,13 @@ func runGUI() {
 	})
 
 	window := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:               title,
-		Frameless:           false,
-		Width:               400,
-		Height:              600,
-		EnableFileDrop:      true,
-		DisableResize:       true,
-		MaximiseButtonState: application.ButtonDisabled,
-		BackgroundType:      application.BackgroundTypeTranslucent,
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 0,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
-		},
-		URL: "/",
+		Title:          title,
+		Width:          1080,
+		Height:         760,
+		MinWidth:       380,
+		MinHeight:      500,
+		EnableFileDrop: true,
+		URL:            "/",
 	})
 
 	uploadManager := core.NewUploadManager(gui.NewWailsReporter(wailsApp), wailsApp.Logger)

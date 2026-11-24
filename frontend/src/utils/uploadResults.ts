@@ -29,7 +29,7 @@ export interface UploadResultEvent {
 
 export function recordUploadResult(results: UploadResults, event: UploadResultEvent): number {
   if (event.IsError) {
-    results.fail.push(event.ErrorMessage ? `${event.Path}: ${event.ErrorMessage}` : event.Path)
+    results.fail.push([event.Path, event.ErrorMessage].filter(Boolean).join(': ') || 'Upload failed')
     return 1
   }
 

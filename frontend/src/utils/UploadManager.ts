@@ -129,13 +129,17 @@ class UploadManager {
   private setupEventListeners() {
     // Handle upload start
     Events.On("uploadStart", (event: { data: UploadBatchStart }) => {
+      if (!this.state.isUploading) {
+        this.state.startTime = Date.now();
+        this.state.albumStatus = null;
+        this.state.isCreatingAlbum = false;
+      }
       this.state.totalFiles = event.data.Total;
       this.state.totalBytes = event.data.TotalBytes; // May be 0 initially
       this.state.uploadedFiles = 0;
       this.state.uploadedBytes = 0;
       this.state.isUploading = true;
       this.state.threads.clear();
-      this.state.startTime = Date.now();
       this.state.uploadSpeed = 0;
       this.lastSpeedUpdate = Date.now();
       this.lastBytesUploaded = 0;
@@ -161,7 +165,7 @@ class UploadManager {
       this.state.warnings.push(event.data);
       if (!isSkippedUploadWarning(event.data.Code)) {
         this.state.results.warnings.push({
-          paths: event.data.Paths,
+          paths: event.data.Paths ?? [],
           code: event.data.Code,
           reason: event.data.Message,
         });
@@ -285,7 +289,7 @@ class UploadManager {
   }
 
   public cancelUpload() {
-    Events.Emit("uploadCancel");
+    return Events.Emit("uploadCancel");
   }
 
   public async copyResultsAsJson() {

@@ -1,14 +1,16 @@
 <script setup lang="ts">
-import { Label } from '@/components/ui/label'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
   Sheet,
+  SheetClose,
   SheetContent,
+  SheetDescription,
+  SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet'
 import { useColorMode } from '@vueuse/core'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { Files, FolderOpen } from '@lucide/vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { Album, ArrowRight, Files, FolderOpen, Folders, Images, Moon, Plus, SlidersHorizontal, Sun, X } from '@lucide/vue'
 import { ConfigManager } from '../bindings/app/core'
 import { Dialogs, Events } from '@wailsio/runtime'
 import Button from "./components/ui/button/Button.vue"
@@ -18,17 +20,20 @@ import './index.css'
 import SettingsPanel from "./SettingsPanel.vue"
 import Upload from './Upload.vue'
 import UploadSelection from './components/UploadSelection.vue'
+import UploadResults from './components/UploadResults.vue'
+import brandMark from './assets/gotohp.svg'
+import tetons from './assets/tetons.webp'
 import { uploadManager } from './utils/UploadManager'
 import Toaster from './components/ui/sonner/Sonner.vue'
 
 import { toast } from "vue-sonner"
 
-useColorMode().value = "dark"
+const colorMode = useColorMode({ storageKey: 'gotohp-appearance' })
+const settingsOpen = ref(false)
+const workspaceHeading = ref<HTMLElement>()
 
 const { state: uploadState } = uploadManager
-const emptySelection = computed(() => uploadState.results.warnings.find(warning => warning.code === 'no-matching-files'))
-const copyButtonText = ref('Copy as JSON')
-let copyReset: ReturnType<typeof setTimeout> | undefined
+const hasResults = computed(() => !uploadState.isUploading && uploadState.startTime > 0)
 let showedUploadError = false
 
 watch(() => uploadState.isUploading, running => {
@@ -38,11 +43,15 @@ watch(() => uploadState.isUploading, running => {
   }
 }, { flush: 'sync' })
 
-// Drag state for dual drop zones
 const isDraggingFiles = ref(false)
 
 const pendingFiles = ref<string[]>([])
 const destination = ref('regular')
+const destinations = [
+  { value: 'regular', label: 'Photo library', icon: Images, dropHint: 'Add to your library.' },
+  { value: 'album', label: 'Named album', icon: Album, dropHint: 'Choose an album name or key next.' },
+  { value: 'auto-album', label: 'Albums from folders', icon: Folders, dropHint: 'Use folder names for the albums.' },
+] as const
 const isStarting = ref(false)
 const isChoosing = ref(false)
 let stopFileDrops: (() => void) | undefined
@@ -57,7 +66,21 @@ const isAccountSetupOpen = ref(false)
 const removingAccount = ref('')
 const hasAccount = computed(() => options.value.includes(selectedOption.value))
 const canUpload = computed(() => pendingFiles.value.length > 0 && hasAccount.value &&
-  !isStarting.value && !isChoosing.value && (destination.value !== 'album' || !!albumNameOrKey.value.trim()))
+  !uploadState.isUploading && !isStarting.value && !isChoosing.value && (destination.value !== 'album' || !!albumNameOrKey.value.trim()))
+const startHint = computed(() => {
+  if (!pendingFiles.value.length) return 'Add files or folders to start.'
+  if (!hasAccount.value) return 'Select a Google account to start.'
+  if (destination.value === 'album' && !albumNameOrKey.value.trim()) return 'Enter an album name or key to start.'
+  return ''
+})
+const canReceiveDrop = computed(() => !uploadState.isUploading && !isStarting.value && !isChoosing.value &&
+  !settingsOpen.value && !isAccountSetupOpen.value)
+
+watch(() => uploadState.isUploading, running => {
+  const heading = !running && document.getElementById('results-title')
+  if (heading) heading.focus()
+  else workspaceHeading.value?.focus()
+}, { flush: 'post' })
 
 watch(selectedOption, async (newValue) => {
   if (newValue) {
@@ -132,6 +155,10 @@ async function removeCredentials(email: string) {
     if (removedSelectedAccount && options.value.length > 0 && !selectedOption.value) {
       selectedOption.value = options.value[0]
     }
+    if (!options.value.length) {
+      await nextTick()
+      focusAccountControl()
+    }
     toast.success('Credentials removed.')
     return true
   } catch (error) {
@@ -147,26 +174,18 @@ function openAccountSetup() {
   isAccountSetupOpen.value = true
 }
 
-onMounted(async () => {
-  await refreshCredentials()
-
-})
-
-async function handleCopyClick() {
-  clearTimeout(copyReset)
-  if (await uploadManager.copyResultsAsJson()) {
-    copyButtonText.value = 'Copied!'
-    copyReset = setTimeout(() => { copyButtonText.value = 'Copy as JSON' }, 1000)
-  } else {
-    copyButtonText.value = 'Copy as JSON'
-    toast.error('Could not copy upload results')
-  }
+function focusAccountControl() {
+  document.getElementById('google-account-control')?.focus()
 }
+
+onMounted(refreshCredentials)
 // Global drag event handlers to detect file dragging
 let dragLeaveTimeout: ReturnType<typeof setTimeout> | null = null
+let dropReset: ReturnType<typeof setTimeout> | undefined
 
 const onDragEnter = (e: DragEvent) => {
-  if (!e.dataTransfer?.types.includes('Files')) return
+  if (!canReceiveDrop.value || !e.dataTransfer?.types.includes('Files')) return
+  clearTimeout(dropReset)
   
   // Clear any pending drag leave timeout
   if (dragLeaveTimeout) {
@@ -211,15 +230,16 @@ const onDrop = () => {
   
   // Delay resetting isDraggingFiles to allow Wails to process the drop target
   // before Vue re-renders and hides the drop zones
-  setTimeout(() => {
+  clearTimeout(dropReset)
+  dropReset = setTimeout(() => {
     isDraggingFiles.value = false
   }, 100)
 }
 
-function stageFiles(files: string[], dropZone = 'regular') {
+function stageFiles(files: string[], dropZone?: string) {
   if (!files.length || isStarting.value || uploadState.isUploading) return
-  if (!pendingFiles.value.length) {
-    destination.value = dropZone === 'album' || dropZone === 'auto-album' ? dropZone : 'regular'
+  if (!pendingFiles.value.length && dropZone && destinations.some(option => option.value === dropZone)) {
+    destination.value = dropZone
   }
   pendingFiles.value = [...new Set([...pendingFiles.value, ...files])]
 }
@@ -244,13 +264,10 @@ async function choosePaths(folders: boolean) {
 
 function clearSelection() {
   pendingFiles.value = []
-  destination.value = 'regular'
-  albumNameOrKey.value = ''
 }
 
 function removePath(path: string) {
   pendingFiles.value = pendingFiles.value.filter(item => item !== path)
-  if (!pendingFiles.value.length) clearSelection()
 }
 
 async function confirmUpload() {
@@ -270,6 +287,8 @@ async function confirmUpload() {
       return
     }
     clearSelection()
+    destination.value = 'regular'
+    albumNameOrKey.value = ''
   } catch (error) {
     toast.error('Could not start upload', { description: String(error) })
   } finally {
@@ -317,13 +336,14 @@ onMounted(() => {
 
   // Listen for files-dropped event from backend
   stopFileDrops = Events.On('files-dropped', ({ data }) => {
-    stageFiles(data.files, data.dropZone)
+    if (canReceiveDrop.value) stageFiles(data.files, data.dropZone)
+    isDraggingFiles.value = false
   })
 })
 
 onUnmounted(() => {
   stopFileDrops?.()
-  clearTimeout(copyReset)
+  clearTimeout(dropReset)
   document.removeEventListener('dragenter', onDragEnter)
   document.removeEventListener('dragleave', onDragLeave)
   document.removeEventListener('dragover', onDragOver)
@@ -337,215 +357,297 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main
-    class="w-screen h-screen flex flex-col items-center"
-    style="--wails-draggable: drag"
+  <div
+    class="app-shell"
+    :data-file-drop-target="canReceiveDrop ? '' : undefined"
   >
-    <!-- Drop zones shown when dragging files -->
-    <div
-      v-if="!uploadState.isUploading && isDraggingFiles && !pendingFiles.length"
-      class="w-screen h-screen flex flex-col gap-3 p-6"
-      style="--wails-draggable: none"
-    >
-      <div
-        data-file-drop-target
-        data-drop-zone="regular"
-        class="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/50 rounded-xl transition-all duration-200 drop-zone"
-      >
-        <h2 class="text-xl font-semibold select-none text-muted-foreground">
-          Upload Only
-        </h2>
-        <p class="text-sm text-muted-foreground/70 mt-2 select-none text-center px-4">
-          Upload files without adding to any album
-        </p>
-      </div>
-      <div
-        data-file-drop-target
-        data-drop-zone="album"
-        class="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/50 rounded-xl transition-all duration-200 drop-zone"
-      >
-        <h2 class="text-xl font-semibold select-none text-muted-foreground">
-          Upload to Album
-        </h2>
-        <p class="text-sm text-muted-foreground/70 mt-2 select-none text-center px-4">
-          Upload and add to a specific album (you'll enter the name)
-        </p>
-      </div>
-      <div
-        data-file-drop-target
-        data-drop-zone="auto-album"
-        class="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/50 rounded-xl transition-all duration-200 drop-zone"
-      >
-        <h2 class="text-xl font-semibold select-none text-muted-foreground">
-          Auto Album
-        </h2>
-        <p class="text-sm text-muted-foreground/70 mt-2 select-none text-center px-4">
-          Upload and create albums automatically based on folder names
-        </p>
-      </div>
-    </div>
-
-    <section
-      v-else-if="!uploadState.isUploading"
-      class="w-full h-full overflow-y-auto"
-      data-file-drop-target
-      style="--wails-draggable: none"
-    >
-      <div
-        class="mx-auto flex w-full max-w-md flex-col gap-4 px-6 py-6"
-        :class="{ 'pt-14': !pendingFiles.length }"
-      >
-        <UploadSelection
-          v-if="pendingFiles.length"
-          v-model:destination="destination"
-          v-model:album="albumNameOrKey"
-          :paths="pendingFiles"
-          :disabled="isStarting || isChoosing"
-          @remove="removePath"
-        />
-        <div
-          v-else
-          class="text-center"
-        >
-          <h1 class="text-xl font-semibold">
-            Choose photos and videos
-          </h1>
-          <p class="mt-1 text-sm text-muted-foreground">
-            Drop files or folders here to review them before uploading.
-          </p>
+    <header class="app-bar">
+      <div class="app-bar-inner">
+        <div class="brand">
+          <span class="brand-mark"><img
+            :src="brandMark"
+            alt=""
+          ></span>
+          <span class="brand-name">gotohp</span>
+          <span class="brand-description">Desktop uploader</span>
         </div>
-
-        <div class="flex justify-center gap-2">
-          <Button
-            variant="outline"
-            :disabled="isStarting || isChoosing"
-            @click="choosePaths(false)"
-          >
-            <Files aria-hidden="true" /> Choose files
-          </Button>
-          <Button
-            variant="outline"
-            :disabled="isStarting || isChoosing"
-            @click="choosePaths(true)"
-          >
-            <FolderOpen aria-hidden="true" /> Choose folders
-          </Button>
-        </div>
-
-        <div class="flex flex-wrap items-center justify-center gap-2">
-          <GoogleAccountSelect
-            v-if="options.length"
-            v-model="selectedOption"
-            :options="options"
-            :removing-account="removingAccount"
-            @item-removed="removeCredentials"
-            @add="openAccountSetup"
-          />
-          <Button
-            v-else
-            variant="outline"
-            @click="openAccountSetup"
-          >
-            Add Google account
-          </Button>
-          <Sheet>
+        <div class="app-tools">
+          <Sheet v-model:open="settingsOpen">
             <SheetTrigger as-child>
               <Button
-                variant="outline"
-                :disabled="isStarting"
+                variant="ghost"
+                size="sm"
+                :disabled="isStarting || uploadState.isUploading"
               >
-                Settings
+                <SlidersHorizontal aria-hidden="true" /> Settings
               </Button>
             </SheetTrigger>
-            <SheetContent side="bottom">
+            <SheetContent
+              side="right"
+              class="settings-sheet w-full overflow-y-auto sm:max-w-md"
+              aria-describedby="settings-description"
+            >
+              <div class="sheet-heading">
+                <div>
+                  <SheetTitle class="panel-title">
+                    Upload settings
+                  </SheetTitle>
+                  <SheetDescription id="settings-description">
+                    Changes are saved as you go.
+                  </SheetDescription>
+                </div>
+                <SheetClose as-child>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Close settings"
+                  >
+                    <X aria-hidden="true" />
+                  </Button>
+                </SheetClose>
+              </div>
               <TooltipProvider disable-hoverable-content>
                 <SettingsPanel />
               </TooltipProvider>
             </SheetContent>
           </Sheet>
-        </div>
-        <div
-          v-if="tokenBindingEmail"
-          class="w-full rounded-lg border p-3 flex flex-col gap-3"
-        >
-          <p class="text-sm text-muted-foreground">
-            This credential needs a token binding key from the rooted Android device it was captured from.
-          </p>
           <Button
-            :disabled="isExtractingTokenBinding"
-            @click="addTokenBindingAliasFromADB"
+            class="appearance-button"
+            variant="ghost"
+            size="icon"
+            :aria-label="colorMode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+            :title="colorMode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+            @click="colorMode = colorMode === 'dark' ? 'light' : 'dark'"
           >
-            {{ isExtractingTokenBinding ? 'Reading ADB...' : 'Read from ADB' }}
-          </Button>
-        </div>
-
-        <template v-if="pendingFiles.length">
-          <p
-            v-if="!hasAccount"
-            class="text-center text-sm text-muted-foreground"
-          >
-            Select a Google account to start this upload.
-          </p>
-          <div class="flex justify-end gap-2 border-t pt-4">
-            <Button
-              variant="outline"
-              :disabled="isStarting || isChoosing"
-              @click="clearSelection"
-            >
-              Cancel
-            </Button>
-            <Button
-              :disabled="!canUpload"
-              @click="confirmUpload"
-            >
-              {{ isStarting ? 'Starting…' : 'Start upload' }}
-            </Button>
-          </div>
-        </template>
-
-        <div
-          v-else-if="uploadState.uploadedFiles > 0 || uploadState.results.fail.length > 0 || uploadState.results.warnings.length > 0"
-          class="flex flex-col items-center gap-2 rounded-lg border p-4"
-        >
-          <h2 class="font-semibold">
-            Upload results
-          </h2>
-          <p
-            v-if="emptySelection"
-            class="text-center text-sm text-muted-foreground"
-          >
-            {{ emptySelection.reason }}
-          </p>
-          <Label class="text-muted-foreground">Successful: {{ uploadState.results.success.length }}</Label>
-          <Label class="text-muted-foreground">Failed: {{ uploadState.results.fail.length }}</Label>
-          <Label class="text-muted-foreground">Skipped: {{ uploadState.results.skipped.length }}</Label>
-          <Label class="text-muted-foreground">Warnings: {{ uploadState.results.warnings.length }}</Label>
-          <Button
-            variant="outline"
-            class="min-w-[125px]"
-            @click="handleCopyClick"
-          >
-            {{ copyButtonText }}
+            <Sun
+              v-if="colorMode === 'dark'"
+              aria-hidden="true"
+            />
+            <Moon
+              v-else
+              aria-hidden="true"
+            />
           </Button>
         </div>
       </div>
-    </section>
-    <div
-      v-if="uploadState.isUploading"
-      class="w-full h-full"
+    </header>
+
+    <main
+      class="workspace"
+      :class="{ 'receiving-files': isDraggingFiles && canReceiveDrop && pendingFiles.length }"
     >
-      <Upload />
+      <div class="workspace-heading">
+        <h1
+          ref="workspaceHeading"
+          tabindex="-1"
+        >
+          {{ uploadState.isUploading ? 'Upload in progress' : 'Upload workspace' }}
+        </h1>
+        <p v-if="!uploadState.isUploading">
+          Review your selection before sending it to Google Photos.
+        </p>
+        <p v-else-if="hasAccount">
+          Google Photos · {{ selectedOption }}
+        </p>
+      </div>
+      <Upload v-if="uploadState.isUploading" />
+      <template v-else>
+        <UploadResults v-if="hasResults && !pendingFiles.length" />
+        <div class="workspace-grid">
+          <div class="source-column">
+            <section
+              class="source-surface"
+              :class="{ 'has-selections': pendingFiles.length }"
+              aria-labelledby="source-title"
+            >
+              <div class="source-copy">
+                <h2 id="source-title">
+                  Add photos &amp; videos
+                </h2>
+                <p>Drop files or folders here.</p>
+                <div class="picker-actions">
+                  <Button
+                    class="source-primary"
+                    :disabled="isStarting || isChoosing"
+                    @click="choosePaths(false)"
+                  >
+                    <Files aria-hidden="true" /> Choose files
+                  </Button>
+                  <Button
+                    class="source-secondary"
+                    :disabled="isStarting || isChoosing"
+                    @click="choosePaths(true)"
+                  >
+                    <FolderOpen aria-hidden="true" /> Choose folders
+                  </Button>
+                </div>
+              </div>
+              <figure class="archive-print">
+                <img
+                  :src="tetons"
+                  alt=""
+                  width="880"
+                  height="713"
+                  draggable="false"
+                >
+                <figcaption>Ansel Adams, 1942</figcaption>
+              </figure>
+            </section>
+            <UploadSelection
+              :paths="pendingFiles"
+              :disabled="isStarting || isChoosing"
+              @remove="removePath"
+              @clear="clearSelection"
+            />
+          </div>
+
+          <aside
+            class="panel destination-panel"
+            aria-labelledby="destination-title"
+          >
+            <header class="panel-heading">
+              <h2
+                id="destination-title"
+                class="panel-title"
+              >
+                Destination
+              </h2>
+            </header>
+            <div class="destination-fields">
+              <div>
+                <p class="field-label">
+                  Google account
+                </p>
+                <GoogleAccountSelect
+                  v-if="options.length"
+                  v-model="selectedOption"
+                  :options="options"
+                  :disabled="isStarting"
+                  :removing-account="removingAccount"
+                  @item-removed="removeCredentials"
+                  @add="openAccountSetup"
+                />
+                <Button
+                  v-else
+                  id="google-account-control"
+                  variant="outline"
+                  class="w-full justify-start"
+                  :disabled="isStarting"
+                  @click="openAccountSetup"
+                >
+                  <Plus aria-hidden="true" /> Add Google account
+                </Button>
+              </div>
+              <div
+                v-if="tokenBindingEmail"
+                class="binding-note"
+              >
+                <p>This credential needs a token binding key from the rooted Android device it was captured from.</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="isExtractingTokenBinding"
+                  @click="addTokenBindingAliasFromADB"
+                >
+                  {{ isExtractingTokenBinding ? 'Reading ADB…' : 'Read from ADB' }}
+                </Button>
+              </div>
+              <fieldset :disabled="isStarting">
+                <legend class="field-label">
+                  Save to
+                </legend>
+                <label
+                  v-for="option in destinations"
+                  :key="option.value"
+                  class="destination-option"
+                >
+                  <input
+                    v-model="destination"
+                    type="radio"
+                    name="destination"
+                    :value="option.value"
+                  >
+                  <component
+                    :is="option.icon"
+                    aria-hidden="true"
+                  />
+                  <span>{{ option.label }}</span>
+                </label>
+              </fieldset>
+              <div
+                v-if="destination === 'album'"
+                class="album-field"
+              >
+                <label
+                  class="field-label"
+                  for="album-input"
+                >Album name or key</label>
+                <input
+                  id="album-input"
+                  v-model="albumNameOrKey"
+                  class="text-field"
+                  :disabled="isStarting"
+                >
+              </div>
+            </div>
+            <div class="destination-action">
+              <Button
+                class="start-button"
+                :disabled="!canUpload"
+                :aria-describedby="startHint ? 'start-hint' : undefined"
+                @click="confirmUpload"
+              >
+                {{ isStarting ? 'Starting…' : 'Start upload' }}
+                <ArrowRight aria-hidden="true" />
+              </Button>
+              <p
+                v-if="startHint"
+                id="start-hint"
+              >
+                {{ startHint }}
+              </p>
+            </div>
+          </aside>
+        </div>
+      </template>
+    </main>
+
+    <div
+      v-if="isDraggingFiles && canReceiveDrop && !pendingFiles.length"
+      class="drop-overlay"
+    >
+      <div class="drop-choices">
+        <p class="drop-heading">
+          Where should these go?
+        </p>
+        <div
+          v-for="option in destinations"
+          :key="option.value"
+          class="drop-zone"
+          data-file-drop-target
+          :data-drop-zone="option.value"
+        >
+          <component
+            :is="option.icon"
+            aria-hidden="true"
+          />
+          <div><h2>{{ option.label }}</h2><p>{{ option.dropHint }}</p></div>
+        </div>
+      </div>
     </div>
+
     <GoogleAuthSetup
       v-model:open="isAccountSetupOpen"
       @account-added="refreshCredentials"
+      @return-focus="focusAccountControl"
     />
     <Toaster
       position="bottom-center"
+      :theme="colorMode === 'dark' ? 'dark' : 'light'"
       rich-colors
       close-button
       :visible-toasts="2"
       :toast-options="{ closeButtonAriaLabel: 'Dismiss notification' }"
     />
-  </main>
+  </div>
 </template>
