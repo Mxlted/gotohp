@@ -1,33 +1,42 @@
 # gotohp
 
-An unofficial Google Photos desktop and command-line client. Mxlted maintains this fork of [xob0t/gotohp](https://github.com/xob0t/gotohp).
+gotohp is an unofficial uploader for Google Photos. Review files in the desktop app or upload them from a terminal with the standalone CLI.
 
-## Review an upload
+## Latest downloads
 
-Drop files and folders onto the window, or use **Choose files** and **Choose folders**. The upload queue shows each selection and its location. In **Destination**, choose the Google account and where to save the batch. You can send it to the photo library, a named album, or albums based on folder names. **Start upload** scans folders using your current **Settings**.
+| Platform | Desktop app | Command-line tool (CLI) |
+| --- | --- | --- |
+| Windows (x64) | [Portable app (.exe)](https://github.com/Mxlted/gotohp/releases/latest/download/gotohp-x64.exe) | [CLI executable (.exe)](https://github.com/Mxlted/gotohp/releases/latest/download/gotohp-cli-x64.exe) |
+| macOS (Apple silicon and Intel) | [Disk image (.dmg)](https://github.com/Mxlted/gotohp/releases/latest/download/gotohp-macos-universal.dmg) or [app bundle (.zip)](https://github.com/Mxlted/gotohp/releases/latest/download/gotohp-macos-universal.zip) | [Universal CLI binary](https://github.com/Mxlted/gotohp/releases/latest/download/gotohp-cli-macos-universal) |
+| Linux (x86-64) | [AppImage](https://github.com/Mxlted/gotohp/releases/latest/download/gotohp_amd64.AppImage) or [Debian package (.deb)](https://github.com/Mxlted/gotohp/releases/latest/download/gotohp_amd64.deb) | [CLI binary](https://github.com/Mxlted/gotohp/releases/latest/download/gotohp-cli_amd64) or [CLI Debian package (.deb)](https://github.com/Mxlted/gotohp/releases/latest/download/gotohp-cli_amd64.deb) |
 
-![Desktop review of three selected paths](readme_assets/upload-review.png)
+[Release notes](https://github.com/Mxlted/gotohp/releases/latest) · [SHA-256 checksums](https://github.com/Mxlted/gotohp/releases/latest/download/SHA256SUMS.txt)
 
-During a transfer, the dashboard shows file activity, speed, and progress. When the batch ends, expand **Show details** to read any failures, skips, or warnings. **Copy as JSON** copies the full report.
+## Desktop uploads
 
-The print in the upload area is Ansel Adams’s *The Tetons – Snake River* (1942). [National Archives photograph](https://www.archives.gov/research/still-pictures/highlights/the-tetons-snake-river)
+Drop files or folders into the window, or use **Choose files** and **Choose folders**. Review the queue and remove anything you want to leave out. Under **Destination**, select a Google account and choose **Photo library**, **Named album**, or **Albums from folders**. Click **Start upload** to scan the selected folders using your current settings and begin the upload.
+
+![Upload queue with three selected paths and the destination account](readme_assets/upload-review.png)
+
+During an upload, the dashboard shows file progress, transfer speed, and elapsed time. When the batch finishes, **Show details** lists any failures, skips, or warnings. Use **Copy as JSON** to copy the full report.
+
+The upload panel features Ansel Adams’s 1942 photograph of the Tetons and the Snake River. [National Archives photograph](https://www.archives.gov/research/still-pictures/highlights/the-tetons-snake-river)
 
 ## Features
 
 - Unlimited uploads (can be disabled)
-- Drag-and-drop file upload interface
-- Credential management
-- Real-time upload progress tracking
-- Configurable upload threads
-- Individual files or directories uploads, with optional recursive scanning
-- Skips files already present in your account
-- CLI mode
-- Configurable, persistent upload settings (stored in "%system config path%/gotohp/gotohp.config")  
-   You can force local config by creating empty gotohp.config next to executable.
+- Upload individual files or scan folders and their subfolders.
+- Skip files already present in the selected account.
+- Adjust the number of concurrent uploads.
+- Manage multiple Google accounts.
+
+Settings are saved in `gotohp/gotohp.config` under your system configuration directory. To keep settings with the executable, create an empty `gotohp.config` next to it.
 
 ## CLI usage
 
-The standalone CLI runs without the GUI. To inspect a folder before signing in, run an offline preview.
+The examples use `gotohp-cli`. If you downloaded the standalone binary, use its filename, such as `.\gotohp-cli-x64.exe` on Windows.
+
+Use `--dry-run` to preview a folder before signing in.
 
 ```shell
 gotohp-cli upload /path/to/photos --recursive --dry-run
@@ -43,11 +52,11 @@ gotohp-cli creds add - < token.txt                   # or read either from stdin
 gotohp-cli creds set user@gmail.com
 ```
 
-This fork uses the same `gotohp.config` location as upstream. For uploads the CLI reads the stored account and takes its upload settings from flags. Pass `--config <path>` to use a separate config file and `--account <email>` to select a stored account.
+The CLI reads the saved account from `gotohp.config` and takes upload options from command-line flags. Use `--config <path>` to specify a different config file or `--account <email>` to select a saved account.
 
 Run `gotohp-cli help` or `gotohp-cli upload --help` for all commands and options.
 
-The GUI binary runs the same CLI when given a command, e.g. `gotohp upload ...`.
+You can also run `gotohp upload /path/to/photos` with the desktop executable.
 
 ## Sign in
 
@@ -89,7 +98,6 @@ From the CLI, open the same page yourself and run `gotohp-cli creds add "<oauth_
 5. Open Google Photos ReVanced on your device and log into your account.
 6. One or more identical GmsCore logs should appear in the terminal.
 7. Copy text from `androidId=` to the end of the line from any log.
-8. That's it! 🎉
 
 </details>
 
@@ -142,6 +150,6 @@ go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.21
 wails3 build
 ```
 
-The desktop executable is written to `bin/`. Linux users can also build or run the fork with Nix. [Nix instructions](nix/README.md)
+The desktop build writes the executable to `bin/`. On Linux, you can also build and run gotohp with Nix. [Nix instructions](nix/README.md)
 
-Pushing a version tag such as `v1.2.3` runs the release builds. Fork maintainers can enable automatic release pull requests by configuring `RELEASE_PLEASE_TOKEN` with contents and pull request write access.
+Pushing a version tag such as `v1.2.3` starts the release builds. To enable automatic release pull requests, set `RELEASE_PLEASE_TOKEN` with write access to repository contents and pull requests.
