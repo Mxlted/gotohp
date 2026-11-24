@@ -1,8 +1,14 @@
 # gotohp
 
-![demo](readme_assets/app_demo.webp)
+An unofficial Google Photos desktop and command-line client. Mxlted maintains this fork of [xob0t/gotohp](https://github.com/xob0t/gotohp).
 
-Unofficial Google Photos Desktop GUI Client
+## Review an upload
+
+Drop files and folders onto the window, or use **Choose files** and **Choose folders**. Review the selected paths, remove any you want to leave out, and choose the photo library, a named album, or albums based on folder names. You can open **Settings** while reviewing. **Start upload** scans the selected folders using those settings.
+
+![Desktop review of three selected paths](readme_assets/upload-review.png)
+
+## Features
 
 - Unlimited uploads (can be disabled)
 - Drag-and-drop file upload interface
@@ -15,13 +21,15 @@ Unofficial Google Photos Desktop GUI Client
 - Configurable, persistent upload settings (stored in "%system config path%/gotohp/gotohp.config")  
    You can force local config by creating empty gotohp.config next to executable.
 
-## [Download](https://github.com/xob0t/gotohp/releases/latest)
-
-Nix users on Linux, see [nix/README.md](nix/README.md).
-
 ## CLI usage
 
-Download the `gotohp-cli` release artifact for your platform. It runs without the GUI.
+The standalone CLI runs without the GUI. To inspect a folder before signing in, run an offline preview.
+
+```shell
+gotohp-cli upload /path/to/photos --recursive --dry-run
+```
+
+The JSON output lists each planned item and its paths. It includes Live Photo pairs, skipped groups, and metadata warnings when pairing is enabled. A dry run reads local media only. Checks for items already in Google Photos take place during an actual upload.
 
 ```shell
 gotohp-cli upload /path/to/photos --recursive --threads 5
@@ -31,7 +39,7 @@ gotohp-cli creds add - < token.txt                   # or read either from stdin
 gotohp-cli creds set user@gmail.com
 ```
 
-The CLI shares the config file with the GUI, but reads only the stored credentials from it. Everything else (proxy, quality, upload behaviour) is set by flags, so a scripted run is unaffected by preferences changed in the GUI. Pass `--config <path>` to use a different config file and `--account <email>` to upload with a specific stored account.
+This fork uses the same `gotohp.config` location as upstream. For uploads the CLI reads the stored account and takes its upload settings from flags. Pass `--config <path>` to use a separate config file and `--account <email>` to select a stored account.
 
 Run `gotohp-cli help` or `gotohp-cli upload --help` for all commands and options.
 
@@ -121,5 +129,13 @@ From the CLI, open the same page yourself and run `gotohp-cli creds add "<oauth_
 
 ## Build
 
-Follow official wails3 guide
-[https://v3.wails.io/getting-started/installation/](https://v3.wails.io/getting-started/installation/)
+Build the CLI from the repository root with Go 1.27. On Windows, run `go build -tags cli -o gotohp-cli.exe .`. On macOS or Linux, run `go build -tags cli -o gotohp-cli .`.
+
+For the desktop app, install Node.js 24 and the native prerequisites for your platform. Put Go's binary directory on your PATH, then run the following commands from the repository root. [Wails installation guide](https://v3.wails.io/getting-started/installation/)
+
+```shell
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.21
+wails3 build
+```
+
+The desktop executable is written to `bin/`. Linux users can also build or run the fork with Nix. [Nix instructions](nix/README.md)
