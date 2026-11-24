@@ -100,7 +100,7 @@ func runGUI() {
 	wailsApp.Event.On("startUpload", func(e *application.CustomEvent) {
 		if data, ok := e.Data.(core.StartUploadEvent); ok {
 			wailsApp.Logger.Info("Starting upload", "fileCount", len(data.Files))
-			uploadManager.Upload(data.Files, configManager.SessionUploadOptions())
+			uploadManager.Upload(data.Files, data.UploadOptions(configManager.SessionUploadOptions()))
 		} else {
 			wailsApp.Logger.Error("startUpload: unexpected data type", "type", fmt.Sprintf("%T", e.Data))
 		}

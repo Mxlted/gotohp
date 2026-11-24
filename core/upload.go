@@ -21,7 +21,25 @@ type FilesDroppedEvent struct {
 
 // StartUploadEvent is received from frontend to start upload
 type StartUploadEvent struct {
-	Files []string `json:"files"`
+	Files       []string           `json:"files"`
+	Destination *UploadDestination `json:"destination,omitempty"`
+}
+
+// UploadDestination is the account and album chosen for one reviewed desktop batch.
+type UploadDestination struct {
+	Account   string `json:"account"`
+	AlbumName string `json:"albumName"`
+	AutoAlbum bool   `json:"autoAlbum"`
+}
+
+// UploadOptions applies the reviewed destination to a copy of the session preferences.
+func (e StartUploadEvent) UploadOptions(opts UploadOptions) UploadOptions {
+	if e.Destination != nil {
+		opts.Api.Account = e.Destination.Account
+		opts.AlbumName = strings.TrimSpace(e.Destination.AlbumName)
+		opts.AlbumAutoMode = e.Destination.AutoAlbum
+	}
+	return opts
 }
 
 type UploadManager struct {

@@ -343,6 +343,7 @@ export class PreflightWarning {
  */
 export class StartUploadEvent {
     "files": string[];
+    "destination"?: UploadDestination | null;
 
     /** Creates a new StartUploadEvent instance. */
     constructor($$source: Partial<StartUploadEvent> = {}) {
@@ -358,9 +359,13 @@ export class StartUploadEvent {
      */
     static createFrom($$source: any = {}): StartUploadEvent {
         const $$createField0_0 = $$createType2;
+        const $$createField1_0 = $$createType4;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("files" in $$parsedSource) {
             $$parsedSource["files"] = $$createField0_0($$parsedSource["files"]);
+        }
+        if ("destination" in $$parsedSource) {
+            $$parsedSource["destination"] = $$createField1_0($$parsedSource["destination"]);
         }
         return new StartUploadEvent($$parsedSource as Partial<StartUploadEvent>);
     }
@@ -448,7 +453,41 @@ export class UploadBatchStart {
     }
 }
 
+/**
+ * UploadDestination is the account and album chosen for one reviewed desktop batch.
+ */
+export class UploadDestination {
+    "account": string;
+    "albumName": string;
+    "autoAlbum": boolean;
+
+    /** Creates a new UploadDestination instance. */
+    constructor($$source: Partial<UploadDestination> = {}) {
+        if (!("account" in $$source)) {
+            this["account"] = "";
+        }
+        if (!("albumName" in $$source)) {
+            this["albumName"] = "";
+        }
+        if (!("autoAlbum" in $$source)) {
+            this["autoAlbum"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UploadDestination instance from a string or object.
+     */
+    static createFrom($$source: any = {}): UploadDestination {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new UploadDestination($$parsedSource as Partial<UploadDestination>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = AccountSummary.createFrom;
 const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = $Create.Array($Create.Any);
+const $$createType3 = UploadDestination.createFrom;
+const $$createType4 = $Create.Nullable($$createType3);
