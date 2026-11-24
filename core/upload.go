@@ -170,6 +170,12 @@ func (m *UploadManager) Upload(paths []string, opts UploadOptions) {
 		m.finish()
 		return
 	}
+	if len(workItems) == 0 && len(preflightWarnings) == 0 {
+		preflightWarnings = append(preflightWarnings, PreflightWarning{
+			Code:    "no-matching-files",
+			Message: "No files matched the current file type and folder settings.",
+		})
+	}
 	m.reportPreflight(len(workItems), preflightWarnings)
 
 	if len(workItems) == 0 {

@@ -26,6 +26,7 @@ import { toast } from "vue-sonner"
 useColorMode().value = "dark"
 
 const { state: uploadState } = uploadManager
+const emptySelection = computed(() => uploadState.results.warnings.find(warning => warning.code === 'no-matching-files'))
 const copyButtonText = ref('Copy as JSON')
 let copyReset: ReturnType<typeof setTimeout> | undefined
 let showedUploadError = false
@@ -503,12 +504,18 @@ onUnmounted(() => {
         </template>
 
         <div
-          v-else-if="uploadState.uploadedFiles > 0 || uploadState.results.fail.length > 0"
+          v-else-if="uploadState.uploadedFiles > 0 || uploadState.results.fail.length > 0 || uploadState.results.warnings.length > 0"
           class="flex flex-col items-center gap-2 rounded-lg border p-4"
         >
           <h2 class="font-semibold">
             Upload results
           </h2>
+          <p
+            v-if="emptySelection"
+            class="text-center text-sm text-muted-foreground"
+          >
+            {{ emptySelection.reason }}
+          </p>
           <Label class="text-muted-foreground">Successful: {{ uploadState.results.success.length }}</Label>
           <Label class="text-muted-foreground">Failed: {{ uploadState.results.fail.length }}</Label>
           <Label class="text-muted-foreground">Skipped: {{ uploadState.results.skipped.length }}</Label>

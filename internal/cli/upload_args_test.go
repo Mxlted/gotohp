@@ -60,6 +60,9 @@ func TestUploadRunIgnoresGUIPreferences(t *testing.T) {
 	if summary.Total != 0 || len(summary.Results) != 0 || summary.Failed != 0 {
 		t.Fatalf("GUI preferences changed CLI file selection: %+v", summary)
 	}
+	if len(summary.Warnings) != 1 || summary.Warnings[0].Code != "no-matching-files" {
+		t.Fatalf("missing explanation for empty batch: %+v", summary.Warnings)
+	}
 	if !core.AppConfig.Preferences.Recursive || !core.AppConfig.Preferences.DisableUnsupportedFilesFilter {
 		t.Fatal("actual upload command did not load the GUI fixture")
 	}
