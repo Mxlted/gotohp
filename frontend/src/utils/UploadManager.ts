@@ -29,6 +29,7 @@ export interface FileUploadResult {
   SkipReason: string;
   Path: string;
   Paths: string[];
+  MovedPaths?: string[];
 }
 
 export interface PreflightWarning {
@@ -91,6 +92,7 @@ class UploadManager {
       fail: [],
       skipped: [],
       warnings: [],
+      moved: [],
     },
     warnings: [],
     livePhotoReview: null,
@@ -288,6 +290,7 @@ class UploadManager {
     this.state.results.fail = [];
     this.state.results.skipped = [];
     this.state.results.warnings = [];
+    this.state.results.moved = [];
   }
 
   public cancelUpload() {

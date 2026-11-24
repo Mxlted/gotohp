@@ -39,6 +39,8 @@ type Preferences struct {
 	UpdateExistingPhotosToLive    bool   `json:"updateExistingPhotosToLive" koanf:"update_existing_photos_to_live"`
 	UploadThreads                 int    `json:"uploadThreads" koanf:"upload_threads"`
 	DeleteFromHost                bool   `json:"deleteFromHost" koanf:"delete_from_host"`
+	MoveAfterUpload               bool   `json:"moveAfterUpload" koanf:"move_after_upload"`
+	MoveDestination               string `json:"moveDestination" koanf:"move_destination"`
 	DisableUnsupportedFilesFilter bool   `json:"disableUnsupportedFilesFilter" koanf:"disable_unsupported_files_filter"`
 	SetDateFromFilename           bool   `json:"setDateFromFilename" koanf:"set_date_from_filename"`
 	ExcludePattern                string `json:"excludePattern" koanf:"exclude_pattern"`
@@ -192,7 +194,27 @@ func (g *ConfigManager) SetUpdateExistingPhotosToLive(updateExistingPhotosToLive
 func (g *ConfigManager) SetDeleteFromHost(deleteFromHost bool) {
 	updateAppConfig(func(config *Config) {
 		config.Preferences.DeleteFromHost = deleteFromHost
+		if deleteFromHost {
+			config.Preferences.MoveAfterUpload = false
+		}
 	})
+}
+
+func (g *ConfigManager) SetAfterUploadAction(action, destination string) error {
+	if action != "keep" && action != "move" && action != "delete" {
+		return fmt.Errorf("unknown after-upload action %q", action)
+	}
+	configMu.Lock()
+	defer configMu.Unlock()
+	previous := AppConfig.Preferences
+	AppConfig.Preferences.MoveAfterUpload = action == "move"
+	AppConfig.Preferences.DeleteFromHost = action == "delete"
+	AppConfig.Preferences.MoveDestination = destination
+	if err := saveAppConfigLocked(); err != nil {
+		AppConfig.Preferences = previous
+		return err
+	}
+	return nil
 }
 
 func (g *ConfigManager) SetDisableUnsupportedFilesFilter(disableUnsupportedFilesFilter bool) {

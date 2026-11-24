@@ -141,6 +141,7 @@ export class FileUploadResult {
     "ErrorMessage": string;
     "Path": string;
     "Paths": string[];
+    "MovedPaths"?: string[];
 
     /** Creates a new FileUploadResult instance. */
     constructor($$source: Partial<FileUploadResult> = {}) {
@@ -180,9 +181,13 @@ export class FileUploadResult {
      */
     static createFrom($$source: any = {}): FileUploadResult {
         const $$createField8_0 = $$createType2;
+        const $$createField9_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("Paths" in $$parsedSource) {
             $$parsedSource["Paths"] = $$createField8_0($$parsedSource["Paths"]);
+        }
+        if ("MovedPaths" in $$parsedSource) {
+            $$parsedSource["MovedPaths"] = $$createField9_0($$parsedSource["MovedPaths"]);
         }
         return new FileUploadResult($$parsedSource as Partial<FileUploadResult>);
     }
@@ -301,6 +306,8 @@ export class Preferences {
     "updateExistingPhotosToLive": boolean;
     "uploadThreads": number;
     "deleteFromHost": boolean;
+    "moveAfterUpload": boolean;
+    "moveDestination": string;
     "disableUnsupportedFilesFilter": boolean;
     "setDateFromFilename": boolean;
     "excludePattern": string;
@@ -342,6 +349,12 @@ export class Preferences {
         }
         if (!("deleteFromHost" in $$source)) {
             this["deleteFromHost"] = false;
+        }
+        if (!("moveAfterUpload" in $$source)) {
+            this["moveAfterUpload"] = false;
+        }
+        if (!("moveDestination" in $$source)) {
+            this["moveDestination"] = "";
         }
         if (!("disableUnsupportedFilesFilter" in $$source)) {
             this["disableUnsupportedFilesFilter"] = false;

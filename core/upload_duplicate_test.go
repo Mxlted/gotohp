@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"app/generated"
 	"google.golang.org/protobuf/proto"
@@ -55,6 +56,8 @@ func TestSingleFileDuplicateOutcomes(t *testing.T) {
 		force             bool
 		lookupFails       bool
 		cleanup           bool
+		move              bool
+		emptyCommit       bool
 		removeDuringCheck bool
 		editDuringCheck   bool
 		wantSkipped       bool
@@ -62,6 +65,10 @@ func TestSingleFileDuplicateOutcomes(t *testing.T) {
 	}{
 		{name: "exact match", match: true, wantSkipped: true},
 		{name: "clean up confirmed match", match: true, cleanup: true, wantSkipped: true},
+		{name: "move confirmed match", match: true, move: true, wantSkipped: true},
+		{name: "move confirmed transfer", move: true},
+		{name: "move keeps edited match", match: true, move: true, editDuringCheck: true, wantSkipped: true, wantWarning: "local-cleanup-failed"},
+		{name: "missing receipt keeps source", move: true, emptyCommit: true},
 		{name: "cleanup failure preserves match", match: true, cleanup: true, removeDuringCheck: true, wantSkipped: true, wantWarning: "local-cleanup-failed"},
 		{name: "edit during lookup keeps newer copy", match: true, cleanup: true, editDuringCheck: true, wantSkipped: true, wantWarning: "local-cleanup-failed"},
 		{name: "miss transfers the file"},
@@ -115,9 +122,11 @@ func TestSingleFileDuplicateOutcomes(t *testing.T) {
 					response.Header.Set("X-GUploader-UploadID", "test-session")
 				case req.URL.String() == photosCreateMediaItemsEndpoint:
 					calls = append(calls, "commit")
-					reply = &generated.CreateMediaItemsResponse{Item: []*generated.CreateMediaItemResponseItem{{
-						ResultItem: &generated.CreateMediaItemResult{MediaKey: "test-media-key"},
-					}}}
+					if !tc.emptyCommit {
+						reply = &generated.CreateMediaItemsResponse{Item: []*generated.CreateMediaItemResponseItem{{
+							ResultItem: &generated.CreateMediaItemResult{MediaKey: "test-media-key"},
+						}}}
+					}
 				default:
 					t.Fatalf("unexpected request %s %s", req.Method, req.URL)
 				}
@@ -132,7 +141,14 @@ func TestSingleFileDuplicateOutcomes(t *testing.T) {
 			manager := NewUploadManager(report, nil)
 			result := manager.processWorkItem(context.Background(), api, UploadWorkItem{
 				Kind: UploadWorkSingle, Single: &SingleMedia{Path: path},
-			}, UploadOptions{ForceUpload: tc.force, DeleteFromHost: tc.cleanup}, 0)
+			}, UploadOptions{ForceUpload: tc.force, DeleteFromHost: tc.cleanup, MoveAfterUpload: tc.move}, 0)
+			if tc.emptyCommit {
+				files, err := os.ReadDir(filepath.Dir(path))
+				if !result.IsError || len(result.MovedPaths) != 0 || err != nil || len(files) != 1 || files[0].Name() != filepath.Base(path) {
+					t.Fatalf("missing receipt: result = %+v, files = %v, err = %v", result, files, err)
+				}
+				return
+			}
 			if result.IsError || result.Skipped != tc.wantSkipped || result.MediaKey != "test-media-key" || result.Path != path {
 				t.Fatalf("file result = %+v", result)
 			}
@@ -159,7 +175,22 @@ func TestSingleFileDuplicateOutcomes(t *testing.T) {
 			} else if len(report.warnings) != 1 || report.warnings[0].Code != tc.wantWarning || !slices.Equal(report.warnings[0].Paths, []string{path}) {
 				t.Fatalf("warnings = %+v, want %s for %s", report.warnings, tc.wantWarning, path)
 			}
-			wantRemoved := tc.cleanup && !tc.editDuringCheck
+			wantMoved := tc.move && !tc.editDuringCheck
+			if wantMoved {
+				if len(result.MovedPaths) != 1 {
+					t.Fatalf("moved paths = %q", result.MovedPaths)
+				}
+				dst := result.MovedPaths[0]
+				if filepath.Dir(filepath.Dir(dst)) != filepath.Dir(path) || filepath.Base(dst) != filepath.Base(path) {
+					t.Fatalf("unexpected destination for individually selected file: %q", dst)
+				}
+				if got, err := os.ReadFile(dst); err != nil || !bytes.Equal(got, contents) {
+					t.Fatalf("moved file = %q, %v", got, err)
+				}
+			} else if len(result.MovedPaths) != 0 {
+				t.Fatalf("unexpected destinations: %q", result.MovedPaths)
+			}
+			wantRemoved := tc.cleanup && !tc.editDuringCheck || wantMoved
 			if _, err := os.Stat(path); (wantRemoved && !os.IsNotExist(err)) || (!wantRemoved && err != nil) {
 				t.Fatalf("unexpected local file state: %v", err)
 			}
@@ -194,9 +225,12 @@ func TestLivePhotoComponentMatchIsAPartialSkip(t *testing.T) {
 	report := &duplicateReporter{}
 	result := NewUploadManager(report, nil).processWorkItem(context.Background(), api, UploadWorkItem{
 		Kind: UploadWorkLivePhoto, LivePhoto: pair,
-	}, UploadOptions{}, 0)
+	}, UploadOptions{MoveAfterUpload: true}, 0)
 	if lookups != 2 || result.IsError || !result.Skipped || result.SkipCode != "remote-live-photo-component-exists" || result.MediaKey != "" {
 		t.Fatalf("component match was misclassified: %d lookups, result %+v", lookups, result)
+	}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 2 || len(result.MovedPaths) != 0 {
+		t.Fatalf("partial match changed local pair: entries = %v, result = %+v, err = %v", entries, result, err)
 	}
 }
 
@@ -210,7 +244,8 @@ func TestLivePhotoCleanupChecksBothContentsBeforeRemoval(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := removeLivePhotoFiles(context.Background(), pair, photoHash[:], videoHash[:]); err == nil {
+	files := []confirmedLocalFile{{pair.PhotoPath, photoHash[:]}, {pair.VideoPath, videoHash[:]}}
+	if err := removeConfirmedFiles(context.Background(), files...); err == nil {
 		t.Fatal("cleanup accepted an edited still")
 	}
 	for path, want := range local {
@@ -221,13 +256,93 @@ func TestLivePhotoCleanupChecksBothContentsBeforeRemoval(t *testing.T) {
 	if err := os.WriteFile(pair.PhotoPath, []byte("still"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := removeLivePhotoFiles(context.Background(), pair, photoHash[:], videoHash[:]); err != nil {
+	if err := removeConfirmedFiles(context.Background(), files...); err != nil {
 		t.Fatal(err)
 	}
 	for path := range local {
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("expected confirmed copy %s to be removed, got %v", path, err)
 		}
+	}
+}
+
+func TestConfirmedLivePhotoMovesBothOriginals(t *testing.T) {
+	for _, name := range []string{"new pair", "updated existing photo", "edited during commit"} {
+		t.Run(name, func(t *testing.T) {
+			parent := t.TempDir()
+			root := filepath.Join(parent, "Google Photos")
+			photo := writeMoveFixture(t, filepath.Join(root, "Photos from 2009", "still.heic"), "still")
+			video := writeMoveFixture(t, filepath.Join(root, "Holiday", "motion.mov"), "motion")
+			reconcile := name == "updated existing photo"
+			opts := UploadOptions{MoveAfterUpload: true, Recursive: true, UpdateExistingPhotosToLive: reconcile}
+			opts.moveBatch = newUploadMoveBatch("", time.Now())
+			if _, _, err := PlanUpload([]string{root}, opts, nil); err != nil {
+				t.Fatal(err)
+			}
+			lookups, transfers := 0, 0
+			api := duplicateTestAPI(func(req *http.Request) (*http.Response, error) {
+				response := &http.Response{StatusCode: 200, Header: make(http.Header)}
+				var reply proto.Message
+				switch {
+				case strings.HasSuffix(req.URL.Path, "/5084965799730810217"):
+					lookups++
+					if reconcile && lookups == 1 {
+						reply = duplicateMatch("existing-still")
+					}
+				case req.Method == http.MethodPut:
+					transfers++
+					reply = &generated.CommitToken{Field1: 2, Field2: []byte("receipt")}
+				case strings.HasSuffix(req.URL.Path, "/uploadmedia/interactive"):
+					response.Header.Set("X-GUploader-UploadID", "session")
+				case req.URL.String() == photosCreateMediaItemsEndpoint:
+					if name == "edited during commit" {
+						writeMoveFixture(t, video.path, "edited")
+					}
+					reply = &generated.CreateMediaItemsResponse{Item: []*generated.CreateMediaItemResponseItem{{
+						ResultItem: &generated.CreateMediaItemResult{MediaKey: "linked-pair"},
+					}}}
+				default:
+					t.Fatalf("unexpected request %s", req.URL.Path)
+				}
+				data, err := proto.Marshal(reply)
+				response.Body = io.NopCloser(bytes.NewReader(data))
+				return response, err
+			})
+			api.model, api.make, api.androidAPIVersion = "test model", "test make", 28
+			report := &duplicateReporter{}
+			result := NewUploadManager(report, nil).processWorkItem(t.Context(), api, UploadWorkItem{
+				Kind: UploadWorkLivePhoto, LivePhoto: &LivePhotoPair{PhotoPath: photo.path, VideoPath: video.path},
+			}, opts, 0)
+			wantTransfers := 2
+			if reconcile {
+				wantTransfers = 1
+			}
+			if result.IsError || result.Skipped || result.MediaKey != "linked-pair" || lookups != 2 || transfers != wantTransfers {
+				t.Fatalf("lookups %d, transfers %d, result %+v", lookups, transfers, result)
+			}
+			if name == "edited during commit" {
+				if len(result.MovedPaths) != 0 || len(report.warnings) != 1 || report.warnings[0].Code != "local-cleanup-failed" {
+					t.Fatalf("move after edit: %+v, warnings %+v", result, report.warnings)
+				}
+				for _, path := range []string{photo.path, video.path} {
+					if _, err := os.Stat(path); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return
+			}
+			for _, file := range []confirmedLocalFile{photo, video} {
+				rel, _ := filepath.Rel(root, file.path)
+				want := filepath.Join(parent, opts.moveBatch.folderName, rel)
+				hash, err := CalculateSHA1(t.Context(), want)
+				if err != nil || !bytes.Equal(hash, file.hash) || !slices.Contains(result.MovedPaths, want) {
+					t.Fatalf("moved component %s: paths %v, err %v", want, result.MovedPaths, err)
+				}
+				if _, err := os.Stat(file.path); !os.IsNotExist(err) {
+					t.Fatalf("source component still present: %s, %v", file.path, err)
+				}
+			}
+		})
 	}
 }
 

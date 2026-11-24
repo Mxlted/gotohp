@@ -21,7 +21,7 @@ const groups = computed(() => [
 ])
 // Skips reported as warnings already have a searchable row with all their paths.
 const detailSkips = computed(() => results.skipped.filter(item => !isSkippedUploadWarning(item.code)))
-const detailCount = computed(() => results.fail.length + detailSkips.value.length)
+const detailCount = computed(() => results.fail.length + detailSkips.value.length + results.moved.length)
 const hasDetails = computed(() => detailCount.value + state.warnings.length > 0)
 const noMatches = computed(() => results.warnings.find(warning => warning.code === 'no-matching-files'))
 const detailsOpen = ref(false)
@@ -31,7 +31,10 @@ const details = computed(() => {
   const skipped = detailSkips.value.slice(0, visibleCount.value - failures.length).map(item => ({
     label: item.code === 'remote-duplicate' ? 'Already in library' : 'Skipped', ...item,
   }))
-  return [...failures, ...skipped]
+  const moved = results.moved.slice(0, visibleCount.value - failures.length - skipped.length).map(path => ({
+    label: 'Moved to', reason: '', paths: [path],
+  }))
+  return [...failures, ...skipped, ...moved]
 })
 
 const copied = ref(false)
@@ -85,6 +88,12 @@ onUnmounted(() => clearTimeout(copyReset))
         </dd>
       </div>
     </dl>
+    <p
+      v-if="results.moved.length"
+      class="result-note"
+    >
+      Moved {{ results.moved.length }} local {{ results.moved.length === 1 ? 'file' : 'files' }}.
+    </p>
     <div
       v-if="incompletePaths.length"
       class="retry-incomplete"

@@ -18,7 +18,6 @@ type livePhotoUploadAPI interface {
 
 type LivePhotoUploadOptions struct {
 	Policy                     LivePhotoCommitPolicy
-	DeleteFromHost             bool
 	SetDateFromFilename        bool
 	UpdateExistingPhotosToLive bool
 }
@@ -30,7 +29,7 @@ func uploadLivePhotoWithCallback(
 	options LivePhotoUploadOptions,
 	workerID int,
 	reporter UploadReporter,
-) (mediaKey string, skipped bool, err error) {
+) (uploadReceipt, error) {
 	displayName := filepath.Base(pair.PhotoPath) + " + " + filepath.Base(pair.VideoPath)
 	reporter.ThreadStatus(ThreadStatus{
 		WorkerID: workerID,
@@ -42,12 +41,13 @@ func uploadLivePhotoWithCallback(
 
 	photoSHA1, photoInfo, err := fileSHA1(ctx, pair.PhotoPath)
 	if err != nil {
-		return "", false, fmt.Errorf("hash Live Photo still: %w", err)
+		return uploadReceipt{}, fmt.Errorf("hash Live Photo still: %w", err)
 	}
 	videoSHA1, videoInfo, err := fileSHA1(ctx, pair.VideoPath)
 	if err != nil {
-		return "", false, fmt.Errorf("hash Live Photo video: %w", err)
+		return uploadReceipt{}, fmt.Errorf("hash Live Photo video: %w", err)
 	}
+	files := []confirmedLocalFile{{pair.PhotoPath, photoSHA1}, {pair.VideoPath, videoSHA1}}
 	totalBytes := photoInfo.Size() + videoInfo.Size()
 
 	reporter.ThreadStatus(ThreadStatus{
@@ -59,11 +59,11 @@ func uploadLivePhotoWithCallback(
 	})
 	photoRemoteKey, err := api.checkUploadHash(ctx, photoSHA1)
 	if err != nil {
-		return "", false, fmt.Errorf("check Live Photo still deduplication: %w", err)
+		return uploadReceipt{}, fmt.Errorf("check Live Photo still deduplication: %w", err)
 	}
 	videoRemoteKey, err := api.checkUploadHash(ctx, videoSHA1)
 	if err != nil {
-		return "", false, fmt.Errorf("check Live Photo video deduplication: %w", err)
+		return uploadReceipt{}, fmt.Errorf("check Live Photo video deduplication: %w", err)
 	}
 	if photoRemoteKey != "" {
 		if options.UpdateExistingPhotosToLive {
@@ -81,7 +81,10 @@ func uploadLivePhotoWithCallback(
 				displayName,
 				reporter,
 			)
-			return mediaKey, false, err
+			if err != nil {
+				return uploadReceipt{}, err
+			}
+			return uploadReceipt{mediaKey: mediaKey, files: files}, nil
 		}
 		reporter.TotalBytesDelta(-totalBytes)
 		reporter.ThreadStatus(ThreadStatus{
@@ -91,7 +94,7 @@ func uploadLivePhotoWithCallback(
 			FileName: displayName,
 			Message:  "Skipped: a Live Photo component already exists remotely",
 		})
-		return "", true, nil
+		return uploadReceipt{skipped: true}, nil
 	}
 	// The VideoOriginal direction has not been recovered. A standalone remote MOV
 	// must not be combined with a newly uploaded still using the Phodeo request.
@@ -104,16 +107,16 @@ func uploadLivePhotoWithCallback(
 			FileName: displayName,
 			Message:  "Skipped: the Live Photo video already exists remotely",
 		})
-		return "", true, nil
+		return uploadReceipt{skipped: true}, nil
 	}
 
 	photoToken, err := uploadLivePhotoComponent(ctx, api, pair.PhotoPath, pair.PhotoPath, photoInfo.Size(), photoSHA1, 0, totalBytes, workerID, displayName, reporter)
 	if err != nil {
-		return "", false, fmt.Errorf("upload Live Photo still: %w", err)
+		return uploadReceipt{}, fmt.Errorf("upload Live Photo still: %w", err)
 	}
 	videoToken, err := uploadLivePhotoComponent(ctx, api, pair.VideoPath, pair.PhotoPath, videoInfo.Size(), videoSHA1, photoInfo.Size(), totalBytes, workerID, displayName, reporter)
 	if err != nil {
-		return "", false, fmt.Errorf("upload Live Photo video: %w", err)
+		return uploadReceipt{}, fmt.Errorf("upload Live Photo video: %w", err)
 	}
 
 	uploadTime := photoInfo.ModTime()
@@ -129,7 +132,7 @@ func uploadLivePhotoWithCallback(
 		FileName: displayName,
 		Message:  "Committing linked Live Photo...",
 	})
-	mediaKey, err = api.CommitLivePhoto(LivePhotoCreateRequest{
+	mediaKey, err := api.CommitLivePhoto(LivePhotoCreateRequest{
 		PhotoToken:       photoToken,
 		VideoToken:       videoToken,
 		FileName:         photoInfo.Name(),
@@ -142,18 +145,12 @@ func uploadLivePhotoWithCallback(
 		UploadDeviceInfo: options.Policy.UploadDeviceInfo,
 	})
 	if err != nil {
-		return "", false, fmt.Errorf("commit Live Photo: %w", err)
+		return uploadReceipt{}, fmt.Errorf("commit Live Photo: %w", err)
 	}
 	if mediaKey == "" {
-		return "", false, fmt.Errorf("Live Photo media key not received")
+		return uploadReceipt{}, fmt.Errorf("Live Photo media key not received")
 	}
-
-	if options.DeleteFromHost {
-		if err := removeLivePhotoFiles(ctx, pair, photoSHA1, videoSHA1); err != nil {
-			return mediaKey, false, err
-		}
-	}
-	return mediaKey, false, nil
+	return uploadReceipt{mediaKey: mediaKey, files: files}, nil
 }
 
 func reconcileExistingLivePhoto(
@@ -223,11 +220,6 @@ func reconcileExistingLivePhoto(
 	if mediaKey == "" {
 		return "", fmt.Errorf("updated Live Photo media key not received")
 	}
-	if options.DeleteFromHost {
-		if err := removeLivePhotoFiles(ctx, pair, photoSHA1, videoSHA1); err != nil {
-			return mediaKey, err
-		}
-	}
 	return mediaKey, nil
 }
 
@@ -265,11 +257,4 @@ func uploadLivePhotoComponent(
 		})
 	}
 	return api.UploadFileWithProgress(ctx, componentPath, uploadSession, progress)
-}
-
-func removeLivePhotoFiles(ctx context.Context, pair LivePhotoPair, photoSHA1, videoSHA1 []byte) error {
-	if err := removeConfirmedFiles(ctx, confirmedLocalFile{pair.VideoPath, videoSHA1}, confirmedLocalFile{pair.PhotoPath, photoSHA1}); err != nil {
-		return fmt.Errorf("Live Photo uploaded but local cleanup failed: %w", err)
-	}
-	return nil
 }

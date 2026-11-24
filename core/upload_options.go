@@ -11,6 +11,8 @@ type UploadOptions struct {
 	Threads                       int
 	ForceUpload                   bool
 	DeleteFromHost                bool
+	MoveAfterUpload               bool
+	MoveDestination               string
 	DisableUnsupportedFilesFilter bool
 	SetDateFromFilename           bool
 
@@ -28,6 +30,9 @@ type UploadOptions struct {
 	// AlbumAutoMode is set, which creates one album per source directory.
 	AlbumName     string
 	AlbumAutoMode bool
+
+	// moveBatch records selection roots during preflight and is shared by this run's workers.
+	moveBatch *uploadMoveBatch
 }
 
 // UploadOptions derives run options from GUI preferences.
@@ -43,6 +48,8 @@ func (c Preferences) UploadOptions() UploadOptions {
 		Threads:                       c.UploadThreads,
 		ForceUpload:                   c.ForceUpload,
 		DeleteFromHost:                c.DeleteFromHost,
+		MoveAfterUpload:               c.MoveAfterUpload,
+		MoveDestination:               c.MoveDestination,
 		DisableUnsupportedFilesFilter: c.DisableUnsupportedFilesFilter,
 		SetDateFromFilename:           c.SetDateFromFilename,
 		PairLivePhotos:                c.PairLivePhotos,

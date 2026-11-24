@@ -15,6 +15,7 @@ export interface UploadResults {
   fail: string[]
   skipped: SkippedUploadResult[]
   warnings: SkippedUploadResult[]
+  moved: string[]
 }
 
 function isIncompleteLivePhotoSkip(code: unknown): boolean {
@@ -49,9 +50,11 @@ export interface UploadResultEvent {
   SkipReason: string
   Path: string
   Paths: string[]
+  MovedPaths?: string[]
 }
 
 export function recordUploadResult(results: UploadResults, event: UploadResultEvent): number {
+  if (event.MovedPaths?.length) results.moved.push(...event.MovedPaths)
   if (event.IsError) {
     results.fail.push([event.Path, event.ErrorMessage].filter(Boolean).join(': ') || 'Upload failed')
     return 1

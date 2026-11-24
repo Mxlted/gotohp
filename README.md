@@ -29,7 +29,9 @@ If Google rate-limits a duplicate check (HTTP 429), gotohp pauses Photos service
 
 If Google returns the same media ID for two ordinary transfers in one batch, **Warnings** lists both paths. A single upload receipt confirms the library item’s ID without saying whether Google created it or reused it.
 
-If you enable **Delete From Host After Upload**, gotohp reads each local file again before deleting it. If its contents have changed, gotohp keeps the file and records a warning. For a Live Photo, it checks both components before removing either one.
+Under **Settings → After upload → Verified local files**, choose **Move to dated folder** to move originals after Google Photos confirms an upload or an exact match. Turn on **Recursive Directory Upload** to include subfolders. For example, selecting `Completed\Google Photos` moves `Photos from 2009\IMG_1234.jpg` to `Completed\Uploaded-2026-11-24-003727.756\Photos from 2009\IMG_1234.jpg`. Files picked individually use their containing folder as the destination parent. Use **Choose folder** to select a different parent. Each batch creates a fresh folder, and files with colliding names receive a numbered suffix. **Show details** lists the moved paths.
+
+**Keep in place** is the default. **Delete from disk** removes verified originals. Before moving or deleting media, gotohp checks that the local contents still match. It verifies both parts of a Live Photo before acting on either. Changed files and partial Live Photo matches stay in place.
 
 With Live Photo pairing enabled, the desktop app holds files that share an ambiguous Live Photo identifier until the other transfers finish. In **Choose a Live Photo pair**, each still shows whether the batch includes a matching motion video in its folder. The app recognizes MOV and MP4 companions by their embedded Apple identifier and still-image-time marker. Choose one still and video, or skip the group. The selected pair uses the batch's destination. Unselected files stay on your computer.
 

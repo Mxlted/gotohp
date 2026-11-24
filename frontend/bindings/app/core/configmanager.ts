@@ -57,6 +57,10 @@ export function RemoveCredentials(email: string): $CancellablePromise<void> {
     return $Call.ByID(741429753, email);
 }
 
+export function SetAfterUploadAction(action: string, destination: string): $CancellablePromise<void> {
+    return $Call.ByID(1544731076, action, destination);
+}
+
 export function SetAlbumAutoMode(autoMode: boolean): $CancellablePromise<void> {
     return $Call.ByID(1875085042, autoMode);
 }

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { nextTick, ref, onMounted, watch } from 'vue'
 import { ConfigManager } from '../bindings/app/core'
+import { Dialogs } from '@wailsio/runtime'
+import { toast } from 'vue-sonner'
+import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -28,13 +31,14 @@ interface Settings {
     pairLivePhotos: boolean
     skipIncompleteLivePhotos: boolean
     updateExistingPhotosToLive: boolean
-    deleteFromHost: boolean
+    afterUpload: 'keep' | 'move' | 'delete'
+    moveDestination: string
     disableUnsupportedFilesFilter: boolean
     setDateFromFilename: boolean
     uploadThreads: number
 }
 
-type BooleanSetting = Exclude<keyof Settings, 'proxy' | 'uploadThreads'>
+type BooleanSetting = 'forceUpload' | 'pairLivePhotos' | 'skipIncompleteLivePhotos' | 'updateExistingPhotosToLive'
 
 const settings = ref<Settings>({
     proxy: '',
@@ -45,12 +49,15 @@ const settings = ref<Settings>({
     pairLivePhotos: false,
     skipIncompleteLivePhotos: true,
     updateExistingPhotosToLive: false,
-    deleteFromHost: false,
+    afterUpload: 'keep',
+    moveDestination: '',
     disableUnsupportedFilesFilter: false,
     setDateFromFilename: false,
     uploadThreads: 0
 })
 const isHydrating = ref(true)
+const isChoosingFolder = ref(false)
+const isSavingAction = ref(false)
 
 const toggleSetting = (setting: BooleanSetting, enabled = true) => {
     if (!enabled) return
@@ -69,7 +76,8 @@ onMounted(async () => {
             pairLivePhotos: config.pairLivePhotos || false,
             skipIncompleteLivePhotos: config.skipIncompleteLivePhotos ?? true,
             updateExistingPhotosToLive: config.updateExistingPhotosToLive || false,
-            deleteFromHost: config.deleteFromHost || false,
+            afterUpload: config.moveAfterUpload ? 'move' : config.deleteFromHost ? 'delete' : 'keep',
+            moveDestination: config.moveDestination || '',
             disableUnsupportedFilesFilter: config.disableUnsupportedFilesFilter || false,
             setDateFromFilename: config.setDateFromFilename || false,
             uploadThreads: config.uploadThreads || 1
@@ -126,10 +134,42 @@ watch(() => settings.value.updateExistingPhotosToLive, async (newValue) => {
     await ConfigManager.SetUpdateExistingPhotosToLive(newValue)
 })
 
-watch(() => settings.value.deleteFromHost, async (newValue) => {
-    if (isHydrating.value) return
-    await ConfigManager.SetDeleteFromHost(newValue)
-})
+async function saveAfterUpload(action: Settings['afterUpload'], folder: string) {
+    isSavingAction.value = true
+    try {
+        await ConfigManager.SetAfterUploadAction(action, folder)
+        settings.value.afterUpload = action
+        settings.value.moveDestination = folder
+    } catch (error) {
+        toast.error('Could not save the after-upload setting', { description: String(error) })
+    } finally {
+        isSavingAction.value = false
+    }
+}
+
+async function changeAfterUpload(event: Event) {
+    const select = event.target as HTMLSelectElement
+    await saveAfterUpload(select.value as Settings['afterUpload'], settings.value.moveDestination)
+    select.value = settings.value.afterUpload
+}
+
+async function chooseMoveDestination() {
+    isChoosingFolder.value = true
+    try {
+        const folder = await Dialogs.OpenFile({
+            Title: 'Choose where to create dated folders',
+            CanChooseFiles: false,
+            CanChooseDirectories: true,
+            CanCreateDirectories: true,
+            Directory: settings.value.moveDestination || undefined,
+        })
+        if (folder) await saveAfterUpload('move', folder)
+    } catch (error) {
+        toast.error('Could not set the destination folder', { description: String(error) })
+    } finally {
+        isChoosingFolder.value = false
+    }
+}
 
 watch(() => settings.value.disableUnsupportedFilesFilter, async (newValue) => {
     if (isHydrating.value) return
@@ -360,15 +400,57 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
     </div>
     <h3>After upload</h3>
     <div class="flex items-center justify-between">
-      <Label
-        for="delete-host"
-        class="size-full cursor-pointer"
-      >Delete From Host After Upload</Label>
-      <Switch
-        id="delete-host"
-        v-model="settings.deleteFromHost"
-        variant="destructive"
-      />
+      <Label for="after-upload">Verified local files</Label>
+      <select
+        id="after-upload"
+        :value="settings.afterUpload"
+        class="h-8 rounded-md border border-input bg-background px-2 text-sm focus-visible:ring-2 focus-visible:ring-ring"
+        :disabled="isHydrating || isSavingAction || isChoosingFolder"
+        @change="changeAfterUpload"
+      >
+        <option value="keep">
+          Keep in place
+        </option>
+        <option value="move">
+          Move to dated folder
+        </option>
+        <option value="delete">
+          Delete from disk
+        </option>
+      </select>
+    </div>
+    <div
+      v-if="settings.afterUpload === 'move'"
+      class="space-y-2"
+    >
+      <p class="text-sm font-medium">
+        Create dated folders in
+      </p>
+      <p class="break-all text-sm">
+        {{ settings.moveDestination || 'The parent of each selected folder' }}
+      </p>
+      <div class="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          :disabled="isChoosingFolder || isSavingAction"
+          @click="chooseMoveDestination"
+        >
+          Choose folder
+        </Button>
+        <Button
+          v-if="settings.moveDestination"
+          variant="ghost"
+          size="sm"
+          :disabled="isChoosingFolder || isSavingAction"
+          @click="saveAfterUpload('move', '')"
+        >
+          Use default
+        </Button>
+      </div>
+      <p class="text-xs text-muted-foreground">
+        Keeps the subfolders inside each selection. Files already matched in Google Photos also move.
+      </p>
     </div>
   </div>
 </template>
