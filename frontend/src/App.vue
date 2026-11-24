@@ -26,7 +26,16 @@ import { toast } from "vue-sonner"
 useColorMode().value = "dark"
 
 const { state: uploadState } = uploadManager
-const copyButtonText = ref('Copy as JSON');
+const copyButtonText = ref('Copy as JSON')
+let copyReset: ReturnType<typeof setTimeout> | undefined
+let showedUploadError = false
+
+watch(() => uploadState.isUploading, running => {
+  if (running) {
+    showedUploadError = false
+    toast.dismiss('upload-error')
+  }
+}, { flush: 'sync' })
 
 // Drag state for dual drop zones
 const isDraggingFiles = ref(false)
@@ -142,14 +151,16 @@ onMounted(async () => {
 
 })
 
-const handleCopyClick = () => {
-  uploadManager.copyResultsAsJson();
-  copyButtonText.value = 'Copied!';
-  setTimeout(() => copyButtonText.value = 'Copy as JSON', 1000);
-};
-
-
-
+async function handleCopyClick() {
+  clearTimeout(copyReset)
+  if (await uploadManager.copyResultsAsJson()) {
+    copyButtonText.value = 'Copied!'
+    copyReset = setTimeout(() => { copyButtonText.value = 'Copy as JSON' }, 1000)
+  } else {
+    copyButtonText.value = 'Copy as JSON'
+    toast.error('Could not copy upload results')
+  }
+}
 // Global drag event handlers to detect file dragging
 let dragLeaveTimeout: ReturnType<typeof setTimeout> | null = null
 
@@ -282,13 +293,16 @@ const albumErrorHandler = (e: Event) => {
 }
 
 const uploadErrorHandler = (e: Event) => {
+  if (showedUploadError) return
+  showedUploadError = true
   const event = e as CustomEvent<{ FileName: string; Message: string }>
   const { FileName, Message } = event.detail
   const errorMessage = Message.replace(/^Error:\s*/, '')
-  toast.error(FileName ? `Upload failed: ${FileName}` : 'Upload failed', {
-    description: errorMessage,
+  toast.error('Upload failed', {
+    id: 'upload-error',
+    description: FileName ? `${FileName}: ${errorMessage}` : errorMessage,
+    descriptionClass: 'max-h-16 overflow-y-auto break-all',
     duration: 10000,
-    important: true,
   })
 }
 
@@ -308,6 +322,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopFileDrops?.()
+  clearTimeout(copyReset)
   document.removeEventListener('dragenter', onDragEnter)
   document.removeEventListener('dragleave', onDragLeave)
   document.removeEventListener('dragover', onDragOver)
@@ -521,8 +536,9 @@ onUnmounted(() => {
     <Toaster
       position="bottom-center"
       rich-colors
-      expand
-      :visible-toasts="4"
+      close-button
+      :visible-toasts="2"
+      :toast-options="{ closeButtonAriaLabel: 'Dismiss notification' }"
     />
   </main>
 </template>
